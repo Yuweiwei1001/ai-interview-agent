@@ -13,8 +13,14 @@ import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.CreateOption;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.interview.agent.interview.agent.CodingAgent;
+import com.interview.agent.interview.agent.CoordinatorAgent;
+import com.interview.agent.interview.agent.ProjectAgent;
+import com.interview.agent.interview.agent.SpeakerAgent;
+import com.interview.agent.interview.agent.TechnicalAgent;
 import com.interview.agent.interview.agent.tool.AskQuestionTool;
 import com.interview.agent.interview.graph.node.AskNode;
+import com.interview.agent.interview.graph.node.CoordinatorNode;
 import com.interview.agent.interview.graph.node.EvaluateNode;
 import com.interview.agent.interview.graph.node.PlanNode;
 import com.interview.agent.interview.plan.PlanGenerator;
@@ -36,14 +42,16 @@ import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
 /**
  * 构建并执行 StateGraph 单 Agent 面试图。
  *
- * <p>图结构（参照 ThinkVerse/probe 已验证模式）：
+ * <p>图结构（参照 ThinkVerse/probe 已验证模式，Phase 1b 多 Agent 编排）：
  * <pre>
- * START → plan → ask → evaluate ──条件边──→ 未达标/未超限→ask（继续）
- *                                           达标/轮次超限→END
+ * START → plan → coordinator → ask → evaluate ─条件边─→ 未结束→coordinator（继续）
+ *                                    │                    已结束→END
+ *                                    └─条件边(phase=TEXT 跳过 speaker)→evaluate
  * </pre>
  *
  * <p>关键点：
  * <ul>
+ *   <li>coordinator 节点由 {@link CoordinatorAgent}（qwen-turbo）路由到 technical/project/coding Agent 出题</li>
  *   <li>{@link StateGraph} 全部 key 使用 {@link ReplaceStrategy}（keyStrategyFactory）</li>
  *   <li>节点用 {@code node_async} 包装，条件边用 {@code edge_async} 包装</li>
  *   <li>领域状态 {@link InterviewState} 整体作为单一 key 存入 OverAllState，
@@ -62,17 +70,29 @@ public class InterviewGraphBuilder {
     private static final List<String> STATE_KEYS = List.of(
             STATE_KEY, "sessionId", "userId", "resumeText", "jdText", "direction", "persona",
             "durationMinutes", "plan", "currentRound", "maxRounds", "rounds", "currentQuestion",
-            "currentAnswer", "currentAgent", "status");
+            "currentAnswer", "currentAgent", "phase", "status");
 
     private final PlanGenerator planGenerator;
     private final AskQuestionTool askQuestionTool;
     private final DataSource dataSource;
+    private final CoordinatorAgent coordinatorAgent;
+    private final TechnicalAgent technicalAgent;
+    private final ProjectAgent projectAgent;
+    private final CodingAgent codingAgent;
+    private final SpeakerAgent speakerAgent;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource) {
+    public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
+                                 CoordinatorAgent coordinatorAgent, TechnicalAgent technicalAgent,
+                                 ProjectAgent projectAgent, CodingAgent codingAgent, SpeakerAgent speakerAgent) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
+        this.coordinatorAgent = coordinatorAgent;
+        this.technicalAgent = technicalAgent;
+        this.projectAgent = projectAgent;
+        this.codingAgent = codingAgent;
+        this.speakerAgent = speakerAgent;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -92,6 +112,7 @@ public class InterviewGraphBuilder {
     public CompiledGraph buildGraph() throws Exception {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
+        CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode();
 
@@ -103,10 +124,22 @@ public class InterviewGraphBuilder {
             InterviewState updated = planNode.apply(interviewState);
             return Map.of(STATE_KEY, updated);
         }));
+        graph.addNode("coordinator", node_async((NodeAction) state -> {
+            InterviewState interviewState = toInterviewState(state);
+            InterviewState updated = coordinatorNode.apply(interviewState);
+            return Map.of(STATE_KEY, updated);
+        }));
         graph.addNode("ask", node_async((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             InterviewState updated = askNode.apply(interviewState);
             return Map.of(STATE_KEY, updated);
+        }));
+        graph.addNode("speaker", node_async((NodeAction) state -> {
+            InterviewState interviewState = toInterviewState(state);
+            // Phase 1: 文字面试直接透传；Phase 2 数字人启用语音合成
+            String spoken = speakerAgent.speak(interviewState.getCurrentQuestion());
+            log.info("SpeakerNode: phase={}, 输出文本长度={}", interviewState.getPhase(), spoken.length());
+            return Map.of(STATE_KEY, interviewState);
         }));
         graph.addNode("evaluate", node_async((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
@@ -115,13 +148,19 @@ public class InterviewGraphBuilder {
         }));
 
         graph.addEdge(START, "plan");
-        graph.addEdge("plan", "ask");
-        graph.addEdge("ask", "evaluate");
+        graph.addEdge("plan", "coordinator");
+        graph.addEdge("coordinator", "ask");
 
-        // 条件边：达标或轮次超限→END；未达标→回到ask
+        // Speaker bypass：文字面试（phase == TEXT）跳过 Speaker 节点直接评估；语音面试走 Speaker 合成
+        graph.addConditionalEdges("ask",
+                edge_async(state -> "TEXT".equalsIgnoreCase(toInterviewState(state).getPhase()) ? "skip_speaker" : "speaker"),
+                Map.of("speaker", "speaker", "skip_speaker", "evaluate"));
+        graph.addEdge("speaker", "evaluate");
+
+        // 条件边：结束→END；未结束→回到 coordinator 继续多 Agent 编排
         graph.addConditionalEdges("evaluate",
-                edge_async(state -> shouldEnd(toInterviewState(state)) ? "end" : "ask"),
-                Map.of("ask", "ask", "end", END));
+                edge_async(state -> shouldEnd(toInterviewState(state)) ? "end" : "coordinator"),
+                Map.of("coordinator", "coordinator", "end", END));
 
         // MySQL Checkpoint Saver
         MysqlSaver saver = MysqlSaver.builder()

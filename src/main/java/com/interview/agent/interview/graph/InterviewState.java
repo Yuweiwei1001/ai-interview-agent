@@ -22,6 +22,7 @@ public class InterviewState {
     private String currentAnswer;
     private String currentAgent;
     private String status; // in_progress, completed, interrupted
+    private String phase = "TEXT"; // TEXT: 文字面试（跳过 Speaker），VOICE: 语音面试（Speaker 合成）
 
     public InterviewState() {
         this.rounds = new ArrayList<>();
@@ -60,6 +61,8 @@ public class InterviewState {
     public void setCurrentAgent(String currentAgent) { this.currentAgent = currentAgent; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getPhase() { return phase; }
+    public void setPhase(String phase) { this.phase = phase; }
 
     public static class RoundRecord {
         private int roundNumber;
