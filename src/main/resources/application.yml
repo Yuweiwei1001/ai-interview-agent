@@ -1,6 +1,8 @@
 spring:
   application:
     name: ai-interview-agent
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
   datasource:
     url: jdbc:mysql://localhost:13307/ai_interview?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
     username: root
@@ -22,3 +24,8 @@ mybatis:
   mapper-locations: classpath:mapper/*.xml
   configuration:
     map-underscore-to-camel-case: true
+
+jwt:
+  secret: ${JWT_SECRET:your-jwt-secret-key-at-least-256-bits-change-in-production}
+  access-expiration: 7200000
+  refresh-expiration: 604800000
