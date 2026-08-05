@@ -29,3 +29,14 @@ jwt:
   secret: ${JWT_SECRET:your-jwt-secret-key-at-least-256-bits-change-in-production}
   access-expiration: 7200000
   refresh-expiration: 604800000
+
+sandbox:
+  docker-host: unix:///var/run/docker.sock
+  cpu-count: 1
+  memory-limit: 512m
+  memory-swap: 512
+  pids-limit: 64
+  timeout-seconds: 30
+  java-image: eclipse-temurin:21-jdk-alpine
+  python-image: python:3.12-slim
+  max-pool-size: 3
