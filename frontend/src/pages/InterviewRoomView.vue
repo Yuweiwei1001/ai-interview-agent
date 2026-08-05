@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { SseClient } from '../utils/sse';
+import { SseClient, type SseEvent } from '../utils/sse';
 import ChatBubble from '../components/ChatBubble.vue';
 
 const route = useRoute();
@@ -25,7 +25,79 @@ onUnmounted(() => {
   sseClient?.disconnect();
 });
 
+function handleSseEvent(event: SseEvent) {
+  switch (event.event) {
+    case 'CONNECTED':
+      sessionId.value = event.data;
+      connected.value = true;
+      break;
+    case 'QUESTION':
+      messages.value.push({
+        role: 'assistant',
+        content: event.data,
+        timestamp: new Date().toLocaleTimeString()
+      });
+      thinking.value = false;
+      break;
+    case 'THINKING':
+      thinking.value = true;
+      break;
+    case 'WAITING_CODE':
+      // 进入编码环节：展示题目并跳转编码页
+      messages.value.push({
+        role: 'assistant',
+        content: '【编程题】' + event.data,
+        timestamp: new Date().toLocaleTimeString()
+      });
+      setTimeout(() => {
+        router.push({ name: 'CodingRoom', query: { sessionId: sessionId.value, question: event.data } });
+      }, 800);
+      break;
+    case 'FOLLOW_UP':
+      messages.value.push({
+        role: 'assistant',
+        content: event.data,
+        timestamp: new Date().toLocaleTimeString()
+      });
+      thinking.value = false;
+      break;
+    case 'CODE_SUBMITTED':
+      messages.value.push({
+        role: 'assistant',
+        content: '代码已提交，评估中...',
+        timestamp: new Date().toLocaleTimeString()
+      });
+      break;
+    case 'COMPLETE':
+      completed.value = true;
+      thinking.value = false;
+      break;
+    case 'REPORT_READY':
+      router.push(`/report/${sessionId.value}`);
+      break;
+    case 'ERROR':
+      error.value = event.data;
+      thinking.value = false;
+      break;
+  }
+}
+
 function startInterview() {
+  const existingSessionId = route.query.sessionId as string | undefined;
+
+  // 已有会话（编码环节返回/刷新页面）：重连 SSE 流而非新建会话
+  if (existingSessionId) {
+    sessionId.value = existingSessionId;
+    connected.value = true;
+    loadHistory(existingSessionId);
+    sseClient = new SseClient();
+    sseClient.connectGet(`/api/interviews/${existingSessionId}/stream`, handleSseEvent, () => {
+      error.value = '连接失败';
+      thinking.value = false;
+    });
+    return;
+  }
+
   const body: any = {
     resumeId: route.query.resumeId ? Number(route.query.resumeId) : null,
     jdId: route.query.jdId ? Number(route.query.jdId) : null,
@@ -35,39 +107,37 @@ function startInterview() {
   };
 
   sseClient = new SseClient();
-  sseClient.connect('/api/interviews/start', body, (event) => {
-    switch (event.event) {
-      case 'CONNECTED':
-        sessionId.value = event.data;
-        connected.value = true;
-        break;
-      case 'QUESTION':
-        messages.value.push({
-          role: 'assistant',
-          content: event.data,
-          timestamp: new Date().toLocaleTimeString()
-        });
-        thinking.value = false;
-        break;
-      case 'THINKING':
-        thinking.value = true;
-        break;
-      case 'COMPLETE':
-        completed.value = true;
-        thinking.value = false;
-        break;
-      case 'REPORT_READY':
-        router.push(`/report/${sessionId.value}`);
-        break;
-      case 'ERROR':
-        error.value = event.data;
-        thinking.value = false;
-        break;
-    }
-  }, () => {
+  sseClient.connect('/api/interviews/start', body, handleSseEvent, () => {
     error.value = '连接失败';
     thinking.value = false;
   });
+}
+
+// 重连时拉取历史轮次，恢复对话上下文
+async function loadHistory(id: string) {
+  try {
+    const res = await fetch(`/api/interviews/sessions/${id}/rounds`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('accessToken')}` }
+    });
+    const json = await res.json();
+    const rounds: any[] = json.data || [];
+    const history: { role: 'assistant' | 'user'; content: string; timestamp: string }[] = [];
+    for (const r of rounds) {
+      if (r.question) {
+        history.push({
+          role: 'assistant',
+          content: r.question,
+          timestamp: new Date(r.createdAt || Date.now()).toLocaleTimeString()
+        });
+      }
+      if (r.candidateAnswer) {
+        history.push({ role: 'user', content: r.candidateAnswer, timestamp: '' });
+      }
+    }
+    if (history.length > 0) messages.value = history;
+  } catch {
+    // 历史加载失败不影响面试流
+  }
 }
 
 async function submitAnswer() {
