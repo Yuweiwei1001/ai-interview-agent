@@ -9,6 +9,7 @@ import com.interview.agent.interview.model.InterviewRound;
 import com.interview.agent.interview.model.InterviewSession;
 import com.interview.agent.interview.plan.InterviewPlan;
 import com.interview.agent.interview.plan.PlanGenerator;
+import com.interview.agent.interview.report.ReportGenerator;
 import com.interview.agent.jd.JdService;
 import com.interview.agent.resume.ResumeService;
 import com.interview.agent.sse.SseRegistry;
@@ -37,11 +38,13 @@ public class InterviewService {
     private final AskQuestionTool askQuestionTool;
     private final SseRegistry sseRegistry;
     private final ObjectMapper objectMapper;
+    private final ReportGenerator reportGenerator;
 
     public InterviewService(InterviewSessionMapper sessionMapper, InterviewRoundMapper roundMapper,
                             ResumeService resumeService, JdService jdService,
                             PlanGenerator planGenerator, InterviewGraphBuilder graphBuilder,
-                            AskQuestionTool askQuestionTool, SseRegistry sseRegistry, ObjectMapper objectMapper) {
+                            AskQuestionTool askQuestionTool, SseRegistry sseRegistry, ObjectMapper objectMapper,
+                            ReportGenerator reportGenerator) {
         this.sessionMapper = sessionMapper;
         this.roundMapper = roundMapper;
         this.resumeService = resumeService;
@@ -51,6 +54,7 @@ public class InterviewService {
         this.askQuestionTool = askQuestionTool;
         this.sseRegistry = sseRegistry;
         this.objectMapper = objectMapper;
+        this.reportGenerator = reportGenerator;
     }
 
     /**
@@ -137,6 +141,9 @@ public class InterviewService {
                 session.setStatus("completed");
                 session.setCompletedAt(LocalDateTime.now());
                 sessionMapper.update(session);
+
+                // 报告生成（异步）
+                reportGenerator.generateReport(sessionId);
 
                 sseRegistry.sendEvent(sessionId, "COMPLETE", "面试完成");
                 sseRegistry.complete(sessionId);
