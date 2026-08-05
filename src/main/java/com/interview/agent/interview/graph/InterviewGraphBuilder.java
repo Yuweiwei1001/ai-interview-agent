@@ -14,6 +14,7 @@ import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interview.agent.interview.agent.CodingAgent;
+import com.interview.agent.interview.agent.ContextWindowManager;
 import com.interview.agent.interview.agent.CoordinatorAgent;
 import com.interview.agent.interview.agent.FollowUpGenerator;
 import com.interview.agent.interview.agent.ProjectAgent;
@@ -87,13 +88,14 @@ public class InterviewGraphBuilder {
     private final BehaviorPolicyFactory policyFactory;
     private final QuestionDeduper questionDeduper;
     private final FollowUpGenerator followUpGenerator;
+    private final ContextWindowManager contextWindowManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
                                  CoordinatorAgent coordinatorAgent, TechnicalAgent technicalAgent,
                                  ProjectAgent projectAgent, CodingAgent codingAgent, SpeakerAgent speakerAgent,
                                  BehaviorPolicyFactory policyFactory, QuestionDeduper questionDeduper,
-                                 FollowUpGenerator followUpGenerator) {
+                                 FollowUpGenerator followUpGenerator, ContextWindowManager contextWindowManager) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -105,6 +107,7 @@ public class InterviewGraphBuilder {
         this.policyFactory = policyFactory;
         this.questionDeduper = questionDeduper;
         this.followUpGenerator = followUpGenerator;
+        this.contextWindowManager = contextWindowManager;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -124,7 +127,7 @@ public class InterviewGraphBuilder {
     public CompiledGraph buildGraph() throws Exception {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
-        CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent, questionDeduper);
+        CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent, questionDeduper, contextWindowManager);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator);
 

@@ -26,8 +26,18 @@ public class CoordinatorAgent {
      * @return 包含 nextAgent, reason, topic, difficulty 的 Map
      */
     public Map<String, String> decideNextAgent(InterviewState state) {
+        return decideNextAgent(state, null);
+    }
+
+    /**
+     * 决定下一个出题 Agent（携带对话历史，历史由 ContextWindowManager 压缩）
+     * @param state 面试状态
+     * @param conversationHistory 压缩后的对话历史（可为 null）
+     * @return 包含 nextAgent, reason, topic, difficulty 的 Map
+     */
+    public Map<String, String> decideNextAgent(InterviewState state, String conversationHistory) {
         try {
-            String prompt = buildDecisionPrompt(state);
+            String prompt = buildDecisionPrompt(state, conversationHistory);
             // 使用结构化输出
             CoordinatorDecision decision = chatClient.prompt()
                     .user(prompt)
@@ -50,13 +60,17 @@ public class CoordinatorAgent {
         }
     }
 
-    private String buildDecisionPrompt(InterviewState state) {
+    private String buildDecisionPrompt(InterviewState state, String conversationHistory) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一位面试协调员，需要根据当前面试进度决定下一个出题的 Agent。\n\n");
         sb.append("当前面试状态：\n");
         sb.append("- 已进行轮次：").append(state.getCurrentRound()).append("\n");
         sb.append("- 当前 Agent：").append(state.getCurrentAgent() != null ? state.getCurrentAgent() : "无").append("\n");
         sb.append("- 面试方向：").append(state.getDirection() != null ? state.getDirection() : "综合技术").append("\n\n");
+
+        if (conversationHistory != null && !conversationHistory.isBlank()) {
+            sb.append("对话历史：\n").append(conversationHistory).append("\n\n");
+        }
 
         sb.append("可选 Agent：\n");
         sb.append("- technical：技术基础（计算机基础、数据结构、算法、编程语言特性）\n");

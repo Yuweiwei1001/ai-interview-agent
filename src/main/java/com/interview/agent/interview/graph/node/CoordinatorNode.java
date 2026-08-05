@@ -1,6 +1,7 @@
 package com.interview.agent.interview.graph.node;
 
 import com.interview.agent.interview.agent.CodingAgent;
+import com.interview.agent.interview.agent.ContextWindowManager;
 import com.interview.agent.interview.agent.CoordinatorAgent;
 import com.interview.agent.interview.agent.ProjectAgent;
 import com.interview.agent.interview.agent.QuestionDeduper;
@@ -21,15 +22,17 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
     private final ProjectAgent projectAgent;
     private final CodingAgent codingAgent;
     private final QuestionDeduper questionDeduper;
+    private final ContextWindowManager contextWindowManager;
 
     public CoordinatorNode(CoordinatorAgent coordinatorAgent, TechnicalAgent technicalAgent,
                           ProjectAgent projectAgent, CodingAgent codingAgent,
-                          QuestionDeduper questionDeduper) {
+                          QuestionDeduper questionDeduper, ContextWindowManager contextWindowManager) {
         this.coordinatorAgent = coordinatorAgent;
         this.technicalAgent = technicalAgent;
         this.projectAgent = projectAgent;
         this.codingAgent = codingAgent;
         this.questionDeduper = questionDeduper;
+        this.contextWindowManager = contextWindowManager;
     }
 
     @Override
@@ -42,8 +45,9 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
                 .filter(t -> t != null && !t.isBlank())
                 .collect(Collectors.toList());
 
-        // Coordinator 决策
-        Map<String, String> decision = coordinatorAgent.decideNextAgent(state);
+        // Coordinator 决策（使用 ContextWindowManager 压缩后的对话历史，避免 Context 溢出）
+        String compressedHistory = contextWindowManager.buildCompressedHistory(state);
+        Map<String, String> decision = coordinatorAgent.decideNextAgent(state, compressedHistory);
         String nextAgent = decision.get("nextAgent");
         String topic = decision.get("topic");
         String difficulty = decision.get("difficulty");
