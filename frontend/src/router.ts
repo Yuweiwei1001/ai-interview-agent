@@ -3,6 +3,7 @@ import LoginView from './pages/LoginView.vue';
 import RegisterView from './pages/RegisterView.vue';
 import HomeView from './pages/HomeView.vue';
 import ResumesView from './pages/ResumesView.vue';
+import JdsView from './pages/JdsView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -12,6 +13,7 @@ const router = createRouter({
     { path: '/register', name: 'Register', component: RegisterView, meta: { requiresAuth: false } },
     { path: '/home', name: 'Home', component: HomeView, meta: { requiresAuth: true } },
         { path: '/resumes', name: 'Resumes', component: ResumesView, meta: { requiresAuth: true } },
+        { path: '/jds', name: 'Jds', component: JdsView, meta: { requiresAuth: true } },
   ]
 });
 
