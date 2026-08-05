@@ -49,6 +49,27 @@ function scoreBg(score: number): string {
         <p class="text-slate-500 mt-2">/ 100</p>
       </div>
 
+      <!-- 成长对比 -->
+      <div v-if="report.growthComparison" class="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">成长对比</h3>
+        <div class="grid grid-cols-3 gap-4 text-center">
+          <div>
+            <p class="text-sm text-slate-500">历史成绩</p>
+            <p class="text-2xl font-bold text-slate-600">{{ Math.round(report.growthComparison.previousScore) }}</p>
+          </div>
+          <div>
+            <p class="text-sm text-slate-500">当前成绩</p>
+            <p class="text-2xl font-bold" :class="scoreColor(report.growthComparison.currentScore)">{{ Math.round(report.growthComparison.currentScore) }}</p>
+          </div>
+          <div>
+            <p class="text-sm text-slate-500">进步</p>
+            <p class="text-2xl font-bold" :class="report.growthComparison.improvement >= 0 ? 'text-green-600' : 'text-red-600'">
+              {{ report.growthComparison.improvement >= 0 ? '+' : '' }}{{ Math.round(report.growthComparison.improvement) }}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <!-- 维度分 -->
       <div class="bg-white rounded-xl shadow-sm p-6 mb-6">
         <h3 class="text-lg font-bold text-slate-800 mb-4">维度评分</h3>
@@ -104,6 +125,15 @@ function scoreBg(score: number): string {
           <p class="text-sm text-slate-600 mb-1"><strong>回答：</strong> {{ q.answer }}</p>
           <p class="text-sm text-slate-500"><strong>评价：</strong> {{ q.feedback }}</p>
         </div>
+      </div>
+
+      <!-- 下载报告 -->
+      <div class="text-center mb-6">
+        <a :href="`/api/interviews/sessions/${route.params.id}/report.pdf`"
+           class="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+           download>
+          下载报告
+        </a>
       </div>
     </template>
   </div>

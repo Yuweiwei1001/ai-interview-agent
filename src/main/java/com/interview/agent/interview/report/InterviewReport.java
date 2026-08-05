@@ -10,6 +10,7 @@ public class InterviewReport {
     private List<String> weaknesses;
     private List<String> suggestions;
     private List<QuestionFeedback> perQuestionFeedback;
+    private GrowthData growthComparison;
 
     public BigDecimal getOverallScore() { return overallScore; }
     public void setOverallScore(BigDecimal overallScore) { this.overallScore = overallScore; }
@@ -23,6 +24,8 @@ public class InterviewReport {
     public void setSuggestions(List<String> suggestions) { this.suggestions = suggestions; }
     public List<QuestionFeedback> getPerQuestionFeedback() { return perQuestionFeedback; }
     public void setPerQuestionFeedback(List<QuestionFeedback> perQuestionFeedback) { this.perQuestionFeedback = perQuestionFeedback; }
+    public GrowthData getGrowthComparison() { return growthComparison; }
+    public void setGrowthComparison(GrowthData growthComparison) { this.growthComparison = growthComparison; }
 
     public static class DimensionScores {
         private BigDecimal technical;
@@ -57,5 +60,18 @@ public class InterviewReport {
         public void setScore(BigDecimal score) { this.score = score; }
         public String getFeedback() { return feedback; }
         public void setFeedback(String feedback) { this.feedback = feedback; }
+    }
+
+    public static class GrowthData {
+        private BigDecimal previousScore;
+        private BigDecimal currentScore;
+        private BigDecimal improvement;
+
+        public BigDecimal getPreviousScore() { return previousScore; }
+        public void setPreviousScore(BigDecimal previousScore) { this.previousScore = previousScore; }
+        public BigDecimal getCurrentScore() { return currentScore; }
+        public void setCurrentScore(BigDecimal currentScore) { this.currentScore = currentScore; }
+        public BigDecimal getImprovement() { return improvement; }
+        public void setImprovement(BigDecimal improvement) { this.improvement = improvement; }
     }
 }

@@ -24,13 +24,16 @@ public class ReportGenerator {
     private final InterviewRoundMapper roundMapper;
     private final SseRegistry sseRegistry;
     private final ObjectMapper objectMapper;
+    private final GrowthComparator growthComparator;
 
     public ReportGenerator(InterviewSessionMapper sessionMapper, InterviewRoundMapper roundMapper,
-                           SseRegistry sseRegistry, ObjectMapper objectMapper) {
+                           SseRegistry sseRegistry, ObjectMapper objectMapper,
+                           GrowthComparator growthComparator) {
         this.sessionMapper = sessionMapper;
         this.roundMapper = roundMapper;
         this.sseRegistry = sseRegistry;
         this.objectMapper = objectMapper;
+        this.growthComparator = growthComparator;
     }
 
     /**
@@ -136,6 +139,16 @@ public class ReportGenerator {
         report.setStrengths(strengths.isEmpty() ? List.of("继续努力，持续进步") : strengths);
         report.setWeaknesses(weaknesses.isEmpty() ? List.of("无明显短板，继续保持") : weaknesses);
         report.setSuggestions(suggestions.isEmpty() ? List.of("保持学习，持续提升") : suggestions);
+
+        // 成长对比
+        GrowthComparator.GrowthComparison growth = growthComparator.compare(session.getId());
+        if (growth.hasGrowth()) {
+            InterviewReport.GrowthData growthData = new InterviewReport.GrowthData();
+            growthData.setPreviousScore(growth.getPreviousScore());
+            growthData.setCurrentScore(growth.getCurrentScore());
+            growthData.setImprovement(growth.getImprovement());
+            report.setGrowthComparison(growthData);
+        }
 
         return report;
     }

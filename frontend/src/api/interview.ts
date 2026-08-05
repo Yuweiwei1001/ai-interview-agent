@@ -41,6 +41,11 @@ export interface InterviewReport {
     score: number;
     feedback: string;
   }[];
+  growthComparison?: {
+    previousScore: number;
+    currentScore: number;
+    improvement: number;
+  };
 }
 
 export function createPlan(data: {

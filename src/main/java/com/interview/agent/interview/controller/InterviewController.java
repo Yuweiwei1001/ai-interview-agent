@@ -1,5 +1,6 @@
 package com.interview.agent.interview.controller;
 
+import com.interview.agent.common.exception.BaseException;
 import com.interview.agent.common.result.Result;
 import com.interview.agent.interview.InterviewAnswerDTO;
 import com.interview.agent.interview.InterviewService;
@@ -9,10 +10,12 @@ import com.interview.agent.interview.model.InterviewSession;
 import com.interview.agent.interview.plan.InterviewPlan;
 import com.interview.agent.interview.report.InterviewReport;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
@@ -77,5 +80,38 @@ public class InterviewController {
         } catch (Exception e) {
             return Result.error("报告解析失败");
         }
+    }
+
+    @GetMapping("/sessions/{id}/report.pdf")
+    public void downloadReportPdf(@PathVariable String id, HttpServletResponse response) {
+        InterviewSession session = interviewService.getSession(id);
+        if (session.getReport() == null) {
+            throw new BaseException("报告尚未生成");
+        }
+
+        response.setContentType("text/plain;charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename=interview-report-" + id + ".txt");
+
+        try {
+            String reportText = buildReportText(session);
+            response.getOutputStream().write(reportText.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new BaseException("报告导出失败");
+        }
+    }
+
+    private String buildReportText(InterviewSession session) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("AI 面试报告\n");
+        sb.append("================\n\n");
+        sb.append("会话ID: ").append(session.getId()).append("\n");
+        sb.append("状态: ").append(session.getStatus()).append("\n");
+        sb.append("总分: ").append(session.getOverallScore()).append("\n");
+        sb.append("开始时间: ").append(session.getStartedAt()).append("\n");
+        sb.append("结束时间: ").append(session.getCompletedAt()).append("\n\n");
+        if (session.getReport() != null) {
+            sb.append("报告详情:\n").append(session.getReport()).append("\n");
+        }
+        return sb.toString();
     }
 }
