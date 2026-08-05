@@ -1,5 +1,6 @@
 package com.interview.agent.interview.agent;
 
+import com.interview.agent.common.ai.LlmCallWrapper;
 import com.interview.agent.interview.policy.BehaviorPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,13 +34,10 @@ public class FollowUpGenerator {
                 break;
         }
 
-        try {
+        return LlmCallWrapper.callWithRetry(() -> {
             String prompt = buildPrompt(originalQuestion, answer, evaluation, policy);
             return chatClient.prompt().user(prompt).call().content();
-        } catch (Exception e) {
-            log.warn("追问生成失败，使用默认追问", e);
-            return fallbackFollowUp(originalQuestion, evaluation);
-        }
+        }, () -> fallbackFollowUp(originalQuestion, evaluation));
     }
 
     private String buildPrompt(String originalQuestion, String answer, java.util.Map<String, Object> evaluation, BehaviorPolicy policy) {

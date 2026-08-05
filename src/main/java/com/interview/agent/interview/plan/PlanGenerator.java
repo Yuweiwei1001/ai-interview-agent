@@ -1,5 +1,6 @@
 package com.interview.agent.interview.plan;
 
+import com.interview.agent.common.ai.LlmCallWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -19,21 +20,17 @@ public class PlanGenerator {
     }
 
     public InterviewPlan generatePlan(String resumeText, String jdText, String direction, String persona, int durationMinutes) {
-        try {
+        return LlmCallWrapper.callWithRetry(() -> {
             String prompt = buildPrompt(resumeText, jdText, direction, persona, durationMinutes);
             InterviewPlan plan = chatClient.prompt()
                     .user(prompt)
                     .call()
                     .entity(InterviewPlan.class);
             if (plan == null || plan.getAgentAssignments() == null || plan.getAgentAssignments().isEmpty()) {
-                log.warn("LLM 返回空计划，使用降级计划");
-                return fallbackPlan(direction, durationMinutes);
+                throw new RuntimeException("LLM 返回空计划");
             }
             return plan;
-        } catch (Exception e) {
-            log.error("计划生成失败，使用降级计划", e);
-            return fallbackPlan(direction, durationMinutes);
-        }
+        }, () -> fallbackPlan(direction, durationMinutes));
     }
 
     private String buildPrompt(String resumeText, String jdText, String direction, String persona, int durationMinutes) {

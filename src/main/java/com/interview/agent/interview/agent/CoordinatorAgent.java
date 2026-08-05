@@ -1,6 +1,7 @@
 package com.interview.agent.interview.agent;
 
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.interview.agent.common.ai.LlmCallWrapper;
 import com.interview.agent.interview.graph.InterviewState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +37,7 @@ public class CoordinatorAgent {
      * @return 包含 nextAgent, reason, topic, difficulty 的 Map
      */
     public Map<String, String> decideNextAgent(InterviewState state, String conversationHistory) {
-        try {
+        return LlmCallWrapper.callWithRetry(() -> {
             String prompt = buildDecisionPrompt(state, conversationHistory);
             // 使用结构化输出
             CoordinatorDecision decision = chatClient.prompt()
@@ -45,7 +46,7 @@ public class CoordinatorAgent {
                     .entity(CoordinatorDecision.class);
 
             if (decision == null || decision.getNextAgent() == null) {
-                return fallbackDecision(state);
+                throw new RuntimeException("Coordinator 返回空决策");
             }
 
             return Map.of(
@@ -54,10 +55,7 @@ public class CoordinatorAgent {
                 "topic", decision.getTopic() != null ? decision.getTopic() : "综合技术",
                 "difficulty", decision.getDifficulty() != null ? decision.getDifficulty() : "中等"
             );
-        } catch (Exception e) {
-            log.warn("Coordinator 决策失败，使用降级策略", e);
-            return fallbackDecision(state);
-        }
+        }, () -> fallbackDecision(state));
     }
 
     private String buildDecisionPrompt(InterviewState state, String conversationHistory) {

@@ -1,5 +1,6 @@
 package com.interview.agent.interview.agent;
 
+import com.interview.agent.common.ai.LlmCallWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -18,13 +19,14 @@ public class TechnicalAgent {
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics) {
-        try {
+        return LlmCallWrapper.callWithRetry(() -> {
             String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics);
-            return chatClient.prompt().user(prompt).call().content();
-        } catch (Exception e) {
-            log.warn("TechnicalAgent 出题失败，使用题库", e);
-            return fallbackQuestion(topic, difficulty);
-        }
+            String result = chatClient.prompt().user(prompt).call().content();
+            if (result == null || result.isBlank()) {
+                throw new RuntimeException("Agent 出题返回空");
+            }
+            return result;
+        }, () -> fallbackQuestion(topic, difficulty));
     }
 
     private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics) {
