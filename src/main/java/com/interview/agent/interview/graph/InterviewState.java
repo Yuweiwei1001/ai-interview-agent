@@ -24,6 +24,15 @@ public class InterviewState {
     private String status; // in_progress, completed, interrupted
     private String phase = "TEXT"; // TEXT: 文字面试（跳过 Speaker），VOICE: 语音面试（Speaker 合成）
 
+    // 显式挂起标志：Coordinator 路由到 coding 时设为 true，codingWait/codingRetryWait 执行时重置为 false
+    private boolean waitingForCode;
+
+    // 待追问内容（EvaluateNode 生成，FollowUpNode 消费）
+    private String pendingFollowUp;
+
+    // 当前评估是否为追问轮
+    private boolean isFollowUpRound;
+
     // Coding 环节字段：代码评估结果与重试状态（供行为策略分流使用）
     private String currentLanguage;   // 当前编码题语言（java/python 等）
     private int codingScore = -1;     // 最近一次代码评估综合评分（-1 表示未评估）
@@ -75,6 +84,12 @@ public class InterviewState {
     public void setCodingScore(int codingScore) { this.codingScore = codingScore; }
     public int getCodingRetryCount() { return codingRetryCount; }
     public void setCodingRetryCount(int codingRetryCount) { this.codingRetryCount = codingRetryCount; }
+    public boolean isWaitingForCode() { return waitingForCode; }
+    public void setWaitingForCode(boolean waitingForCode) { this.waitingForCode = waitingForCode; }
+    public String getPendingFollowUp() { return pendingFollowUp; }
+    public void setPendingFollowUp(String pendingFollowUp) { this.pendingFollowUp = pendingFollowUp; }
+    public boolean isFollowUpRound() { return isFollowUpRound; }
+    public void setIsFollowUpRound(boolean isFollowUpRound) { this.isFollowUpRound = isFollowUpRound; }
     public String getCodingHint() { return codingHint; }
     public void setCodingHint(String codingHint) { this.codingHint = codingHint; }
 

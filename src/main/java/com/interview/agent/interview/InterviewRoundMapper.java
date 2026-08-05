@@ -16,4 +16,7 @@ public interface InterviewRoundMapper {
 
     @Select("SELECT * FROM interview_round WHERE id = #{id}")
     InterviewRound findById(Long id);
+
+    @Select("SELECT COUNT(*) FROM interview_round WHERE session_id = #{sessionId}")
+    int countBySessionId(String sessionId);
 }

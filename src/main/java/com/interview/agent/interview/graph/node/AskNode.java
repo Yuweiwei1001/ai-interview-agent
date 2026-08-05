@@ -2,7 +2,6 @@ package com.interview.agent.interview.graph.node;
 
 import com.interview.agent.interview.agent.tool.AskQuestionTool;
 import com.interview.agent.interview.graph.InterviewState;
-import com.interview.agent.interview.plan.InterviewPlan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,11 +17,14 @@ public class AskNode implements Function<InterviewState, InterviewState> {
 
     @Override
     public InterviewState apply(InterviewState state) {
-        log.info("AskNode: 出题并等待回答, round={}, sessionId={}", state.getCurrentRound() + 1, state.getSessionId());
-        
-        // 构建题目
-        String question = buildQuestion(state);
-        state.setCurrentQuestion(question);
+        log.info("AskNode: 推送题目并等待回答, round={}, sessionId={}", state.getCurrentRound() + 1, state.getSessionId());
+
+        // 使用 Coordinator 已生成的题目，不覆盖
+        String question = state.getCurrentQuestion();
+        if (question == null || question.isBlank()) {
+            question = "请介绍一下你的技术背景和项目经验。";
+            state.setCurrentQuestion(question);
+        }
 
         // 推送思考中状态
         askQuestionTool.sendThinking(state.getSessionId());
@@ -33,26 +35,8 @@ public class AskNode implements Function<InterviewState, InterviewState> {
 
         // 记录轮次
         state.setCurrentRound(state.getCurrentRound() + 1);
-        
+
         log.info("AskNode: 收到回答, round={}, answerLength={}", state.getCurrentRound(), answer.length());
         return state;
-    }
-
-    private String buildQuestion(InterviewState state) {
-        InterviewPlan plan = state.getPlan();
-        if (plan == null || plan.getAgentAssignments() == null || plan.getAgentAssignments().isEmpty()) {
-            return "请介绍一下你的技术背景和项目经验。";
-        }
-
-        // 简化版：轮流从各 Agent 主题出题
-        String[] agents = {"technical", "project", "coding"};
-        String agent = agents[state.getCurrentRound() % 3];
-        state.setCurrentAgent(agent);
-
-        InterviewPlan.AgentAssignment assignment = plan.getAgentAssignments().get(agent);
-        String topics = assignment != null ? assignment.getTopics() : "综合技术";
-
-        return String.format("（第%d轮/%s方向）请围绕以下主题回答：%s。请详细说明你的理解和实践经验。",
-                state.getCurrentRound() + 1, agent, topics);
     }
 }

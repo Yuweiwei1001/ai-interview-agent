@@ -2,6 +2,7 @@ package com.interview.agent.auth;
 
 import com.interview.agent.common.exception.BaseException;
 import com.interview.agent.common.utils.JwtUtil;
+import io.jsonwebtoken.Claims;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -46,7 +47,11 @@ public class AuthService {
 
     public LoginVO refresh(String refreshToken) {
         try {
-            Long userId = jwtUtil.getUserIdFromToken(refreshToken);
+            Claims claims = jwtUtil.parseToken(refreshToken);
+            if (!"refresh".equals(claims.get("type", String.class))) {
+                throw new BaseException("Token 类型错误，请使用 refresh token");
+            }
+            Long userId = Long.parseLong(claims.getSubject());
             User user = userMapper.findById(userId);
             if (user == null) {
                 throw new BaseException("用户不存在");
@@ -54,6 +59,8 @@ public class AuthService {
             String newAccessToken = jwtUtil.generateAccessToken(user.getId(), user.getUsername());
             String newRefreshToken = jwtUtil.generateRefreshToken(user.getId());
             return new LoginVO(newAccessToken, newRefreshToken, user.getId(), user.getUsername());
+        } catch (BaseException e) {
+            throw e;
         } catch (Exception e) {
             throw new BaseException("刷新 Token 无效或已过期");
         }

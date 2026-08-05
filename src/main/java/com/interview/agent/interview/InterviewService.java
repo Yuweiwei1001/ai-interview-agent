@@ -2,6 +2,7 @@ package com.interview.agent.interview;
 
 import com.interview.agent.common.context.BaseContext;
 import com.interview.agent.common.exception.BaseException;
+import com.interview.agent.common.exception.InterviewTerminatedException;
 import com.interview.agent.interview.agent.tool.AskQuestionTool;
 import com.interview.agent.interview.graph.InterviewGraphBuilder;
 import com.interview.agent.interview.graph.InterviewState;
@@ -17,6 +18,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -25,6 +27,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
 public class InterviewService {
@@ -39,12 +42,14 @@ public class InterviewService {
     private final SseRegistry sseRegistry;
     private final ObjectMapper objectMapper;
     private final ReportGenerator reportGenerator;
+    private final Executor interviewExecutor;
 
     public InterviewService(InterviewSessionMapper sessionMapper, InterviewRoundMapper roundMapper,
                             ResumeService resumeService, JdService jdService,
                             PlanGenerator planGenerator, InterviewGraphBuilder graphBuilder,
                             AskQuestionTool askQuestionTool, SseRegistry sseRegistry, ObjectMapper objectMapper,
-                            ReportGenerator reportGenerator) {
+                            ReportGenerator reportGenerator,
+                            @Qualifier("interviewExecutor") Executor interviewExecutor) {
         this.sessionMapper = sessionMapper;
         this.roundMapper = roundMapper;
         this.resumeService = resumeService;
@@ -55,6 +60,7 @@ public class InterviewService {
         this.sseRegistry = sseRegistry;
         this.objectMapper = objectMapper;
         this.reportGenerator = reportGenerator;
+        this.interviewExecutor = interviewExecutor;
     }
 
     /**
@@ -83,7 +89,7 @@ public class InterviewService {
         SseEmitter emitter = sseRegistry.register(sessionId);
         sseRegistry.sendEvent(sessionId, "CONNECTED", sessionId);
 
-        // 创建会话记录
+        // 创建会话记录（interview_plan 先为 null，异步生成后回填）
         InterviewSession session = new InterviewSession();
         session.setId(sessionId);
         session.setUserId(userId);
@@ -94,17 +100,9 @@ public class InterviewService {
         session.setDurationMinutes(dto.getDurationMinutes());
         session.setStatus("in_progress");
         session.setStartedAt(LocalDateTime.now());
-
-        // 生成计划
-        InterviewPlan plan = createPlan(dto.getResumeId(), dto.getJdId(), dto.getDirection(), dto.getPersona(), dto.getDurationMinutes());
-        try {
-            session.setInterviewPlan(objectMapper.writeValueAsString(plan));
-        } catch (JsonProcessingException e) {
-            log.warn("序列化面试计划失败", e);
-        }
         sessionMapper.insert(session);
 
-        // 异步执行面试图
+        // 异步执行面试（专用线程池，不阻塞 SSE 首包；计划生成也在异步线程完成）
         CompletableFuture.runAsync(() -> {
             // 异步线程中恢复用户上下文（getById 依赖 ThreadLocal 校验）
             BaseContext.setCurrentId(userId);
@@ -123,14 +121,34 @@ public class InterviewService {
                 initialState.setPersona(dto.getPersona());
                 initialState.setDurationMinutes(dto.getDurationMinutes());
 
+                // 生成计划（异步，不阻塞 SSE 首包）
+                InterviewPlan plan = createPlan(dto.getResumeId(), dto.getJdId(), dto.getDirection(), dto.getPersona(), dto.getDurationMinutes());
+                if (plan != null) {
+                    initialState.setPlan(plan);
+                    try {
+                        session.setInterviewPlan(objectMapper.writeValueAsString(plan));
+                    } catch (JsonProcessingException e) {
+                        log.warn("序列化面试计划失败", e);
+                    }
+                    sessionMapper.updatePlan(sessionId, session.getInterviewPlan());
+                }
+
                 // 执行面试图
                 InterviewState finalState = graphBuilder.executeInterview(initialState);
 
                 // 检查是否挂起等待代码提交
-                if ("waiting_code".equals(finalState.getStatus())) {
+                if (finalState.isWaitingForCode()) {
                     log.info("面试图已挂起，等待代码提交: sessionId={}", sessionId);
                     sessionMapper.updateStatus(sessionId, "waiting_code");
-                    sseRegistry.sendEvent(sessionId, "WAITING_CODE", "编码题已出，请提交代码");
+                    String question = finalState.getCurrentQuestion() != null ? finalState.getCurrentQuestion() : "编码题已出，请提交代码";
+                    sseRegistry.sendEvent(sessionId, "WAITING_CODE", question);
+                    return;
+                }
+
+                // 完成流程前重新读取会话：若已被 endInterview 置为 interrupted 则跳过，不覆盖状态
+                InterviewSession latest = sessionMapper.findById(sessionId);
+                if (latest != null && "interrupted".equals(latest.getStatus())) {
+                    log.info("面试已被手动结束，跳过完成逻辑: sessionId={}", sessionId);
                     return;
                 }
 
@@ -150,12 +168,15 @@ public class InterviewService {
                 session.setCompletedAt(LocalDateTime.now());
                 sessionMapper.update(session);
 
-                // 报告生成（异步）
+                // 报告生成（同步，保证 REPORT_READY 先于 COMPLETE 推送）
                 reportGenerator.generateReport(sessionId);
 
                 sseRegistry.sendEvent(sessionId, "COMPLETE", "面试完成");
                 sseRegistry.complete(sessionId);
 
+            } catch (InterviewTerminatedException e) {
+                log.info("面试已被终止: sessionId={}", sessionId);
+                // 不发送 ERROR，保持 interrupted 状态
             } catch (Exception e) {
                 log.error("面试执行失败: sessionId={}", sessionId, e);
                 sessionMapper.updateStatus(sessionId, "interrupted");
@@ -163,7 +184,7 @@ public class InterviewService {
             } finally {
                 BaseContext.removeCurrentId();
             }
-        });
+        }, interviewExecutor);
 
         return emitter;
     }
@@ -173,7 +194,17 @@ public class InterviewService {
      */
     public void resumeCoding(String sessionId, String code, String language) {
         CompletableFuture.runAsync(() -> {
+            Long userId = null;
             try {
+                // 从会话查询 userId，恢复用户上下文（getById 依赖 ThreadLocal 校验）
+                InterviewSession session = sessionMapper.findById(sessionId);
+                if (session == null) {
+                    log.warn("会话不存在，无法恢复: sessionId={}", sessionId);
+                    return;
+                }
+                userId = session.getUserId();
+                BaseContext.setCurrentId(userId);
+
                 log.info("恢复 Coding 面试: sessionId={}, language={}", sessionId, language);
 
                 // 从 Checkpoint 恢复图执行，携带代码
@@ -182,12 +213,18 @@ public class InterviewService {
                 // 处理恢复后的结果
                 handleGraphResult(sessionId, finalState);
 
+            } catch (InterviewTerminatedException e) {
+                log.info("面试已被终止，忽略恢复执行: sessionId={}", sessionId);
             } catch (Exception e) {
                 log.error("恢复 Coding 面试失败: sessionId={}", sessionId, e);
                 sessionMapper.updateStatus(sessionId, "interrupted");
                 sseRegistry.sendError(sessionId, "编码提交处理失败: " + e.getMessage());
+            } finally {
+                if (userId != null) {
+                    BaseContext.removeCurrentId();
+                }
             }
-        });
+        }, interviewExecutor);
     }
 
     /**
@@ -200,7 +237,7 @@ public class InterviewService {
             return;
         }
 
-        if ("waiting_code".equals(finalState.getStatus())) {
+        if (finalState.isWaitingForCode()) {
             // 又遇到编码题，继续挂起等待；带上人格策略生成的提示
             log.info("面试图再次挂起，等待新编码题提交: sessionId={}", sessionId);
             sessionMapper.updateStatus(sessionId, "waiting_code");
@@ -209,6 +246,13 @@ public class InterviewService {
                 message = finalState.getCodingHint();
             }
             sseRegistry.sendEvent(sessionId, "WAITING_CODE", message);
+            return;
+        }
+
+        // 完成流程前重新读取会话：若已被 endInterview 置为 interrupted 则跳过，不覆盖状态
+        InterviewSession latest = sessionMapper.findById(sessionId);
+        if (latest != null && "interrupted".equals(latest.getStatus())) {
+            log.info("面试已被手动结束，跳过完成逻辑: sessionId={}", sessionId);
             return;
         }
 
@@ -234,7 +278,7 @@ public class InterviewService {
         session.setCompletedAt(LocalDateTime.now());
         sessionMapper.update(session);
 
-        // 报告生成
+        // 报告生成（同步，保证 REPORT_READY 先于 COMPLETE 推送）
         reportGenerator.generateReport(sessionId);
 
         sseRegistry.sendEvent(sessionId, "COMPLETE", "面试完成");

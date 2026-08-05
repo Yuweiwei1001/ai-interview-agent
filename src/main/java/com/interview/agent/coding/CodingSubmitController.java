@@ -1,6 +1,8 @@
 package com.interview.agent.coding;
 
+import com.interview.agent.common.context.BaseContext;
 import com.interview.agent.common.result.Result;
+import com.interview.agent.interview.InterviewRoundMapper;
 import com.interview.agent.interview.InterviewService;
 import com.interview.agent.interview.InterviewSessionMapper;
 import com.interview.agent.interview.model.InterviewSession;
@@ -15,15 +17,18 @@ public class CodingSubmitController {
     private static final Logger log = LoggerFactory.getLogger(CodingSubmitController.class);
     private final InterviewSessionMapper sessionMapper;
     private final CodingSubmissionMapper submissionMapper;
+    private final InterviewRoundMapper roundMapper;
     private final InterviewService interviewService;
     private final SseRegistry sseRegistry;
 
     public CodingSubmitController(InterviewSessionMapper sessionMapper,
                                    CodingSubmissionMapper submissionMapper,
+                                   InterviewRoundMapper roundMapper,
                                    InterviewService interviewService,
                                    SseRegistry sseRegistry) {
         this.sessionMapper = sessionMapper;
         this.submissionMapper = submissionMapper;
+        this.roundMapper = roundMapper;
         this.interviewService = interviewService;
         this.sseRegistry = sseRegistry;
     }
@@ -44,9 +49,15 @@ public class CodingSubmitController {
             return Result.error("当前会话状态不允许提交代码: " + session.getStatus());
         }
 
-        // 保存提交记录
+        // 归属校验：防止越权提交他人面试的代码
+        if (!session.getUserId().equals(BaseContext.getCurrentId())) {
+            return Result.error("无权操作该面试");
+        }
+
+        // 保存提交记录（round_number = 已有轮次数 + 1）
         CodingSubmission submission = new CodingSubmission();
         submission.setSessionId(sessionId);
+        submission.setRoundNumber(roundMapper.countBySessionId(sessionId) + 1);
         submission.setCode(request.getCode());
         submission.setLanguage(request.getLanguage());
         submission.setStatus("pending");

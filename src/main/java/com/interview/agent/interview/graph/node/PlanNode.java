@@ -18,6 +18,10 @@ public class PlanNode implements Function<InterviewState, InterviewState> {
 
     @Override
     public InterviewState apply(InterviewState state) {
+        if (state.getPlan() != null) {
+            log.info("PlanNode: 已有面试计划，跳过生成, sessionId={}", state.getSessionId());
+            return state;
+        }
         log.info("PlanNode: 生成面试计划, sessionId={}", state.getSessionId());
         InterviewPlan plan = planGenerator.generatePlan(
                 state.getResumeText(),

@@ -69,6 +69,12 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
         }
 
         state.setCurrentQuestion(question);
+
+        // 当路由到 coding Agent 时，设置显式挂起标志
+        if ("coding".equals(nextAgent)) {
+            state.setWaitingForCode(true);
+        }
+
         return state;
     }
 

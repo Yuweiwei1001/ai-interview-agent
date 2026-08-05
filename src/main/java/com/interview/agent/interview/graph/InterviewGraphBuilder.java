@@ -28,6 +28,7 @@ import com.interview.agent.interview.agent.tool.AskQuestionTool;
 import com.interview.agent.interview.graph.node.AskNode;
 import com.interview.agent.interview.graph.node.CoordinatorNode;
 import com.interview.agent.interview.graph.node.EvaluateNode;
+import com.interview.agent.interview.graph.node.FollowUpNode;
 import com.interview.agent.interview.graph.node.PlanNode;
 import com.interview.agent.interview.plan.PlanGenerator;
 import com.interview.agent.interview.policy.BehaviorPolicy;
@@ -80,7 +81,8 @@ public class InterviewGraphBuilder {
     private static final List<String> STATE_KEYS = List.of(
             STATE_KEY, "sessionId", "userId", "resumeText", "jdText", "direction", "persona",
             "durationMinutes", "plan", "currentRound", "maxRounds", "rounds", "currentQuestion",
-            "currentAnswer", "currentAgent", "phase", "status");
+            "currentAnswer", "currentAgent", "phase", "status", "waitingForCode",
+            "pendingFollowUp", "isFollowUpRound");
 
     private final PlanGenerator planGenerator;
     private final AskQuestionTool askQuestionTool;
@@ -179,18 +181,22 @@ public class InterviewGraphBuilder {
         graph.addEdge(START, "plan");
         graph.addEdge("plan", "coordinator");
         // codingWait 节点：Coding 环节挂起点，interruptBefore 挂起后等待代码提交
+        // 节点实际执行时说明代码已提交，重置 waitingForCode 标志和状态
         graph.addNode("codingWait", node_async((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
-            interviewState.setStatus("waiting_code");
-            log.info("CodingWait: 已挂起等待代码提交, round={}, sessionId={}",
+            interviewState.setWaitingForCode(false);
+            interviewState.setStatus("in_progress");
+            log.info("CodingWait: 代码已提交，继续执行, round={}, sessionId={}",
                     interviewState.getCurrentRound(), interviewState.getSessionId());
             return Map.of(STATE_KEY, interviewState);
         }));
 
         // codingRetryWait 节点：代码不达标时按行为策略再次挂起，等待修改后的代码
+        // 节点实际执行时说明代码已提交，重置 waitingForCode 标志和状态
         graph.addNode("codingRetryWait", node_async((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
-            interviewState.setStatus("waiting_code");
+            interviewState.setWaitingForCode(false);
+            interviewState.setStatus("in_progress");
             interviewState.setCodingRetryCount(interviewState.getCodingRetryCount() + 1);
 
             // 按人格生成提示（温和型给提示；压力型/中性型给默认提示）
@@ -224,8 +230,17 @@ public class InterviewGraphBuilder {
                 Map.of("speaker", "speaker", "skip_speaker", "evaluate"));
         graph.addEdge("speaker", "evaluate");
 
+        // 添加 FollowUp 节点
+        FollowUpNode followUpNode = new FollowUpNode(askQuestionTool);
+        graph.addNode("followUp", node_async((NodeAction) state -> {
+            InterviewState interviewState = toInterviewState(state);
+            InterviewState updated = followUpNode.apply(interviewState);
+            return Map.of(STATE_KEY, updated);
+        }));
+
         // 条件边：结束→END；未结束→回到 coordinator 继续多 Agent 编排；
         // Coding 环节代码评估完成后，按行为策略分流（压力型直接切题 / 温和型给提示重试 / 中性型一次修改机会）
+        // 非追问轮且有追问内容 → followUp 节点
         graph.addConditionalEdges("evaluate",
                 edge_async(state -> {
                     InterviewState interviewState = toInterviewState(state);
@@ -236,9 +251,20 @@ public class InterviewGraphBuilder {
                         }
                         return decideCodingNext(interviewState);
                     }
-                    return shouldEnd(interviewState) ? "end" : "coordinator";
+                    if (shouldEnd(interviewState)) {
+                        return "end";
+                    }
+                    // 非追问轮且有追问内容 → followUp
+                    if (!interviewState.isFollowUpRound()
+                            && interviewState.getPendingFollowUp() != null
+                            && !interviewState.getPendingFollowUp().isBlank()) {
+                        return "followUp";
+                    }
+                    return "coordinator";
                 }),
-                Map.of("coordinator", "coordinator", "end", END, "codingRetryWait", "codingRetryWait"));
+                Map.of("coordinator", "coordinator", "end", END, "codingRetryWait", "codingRetryWait", "followUp", "followUp"));
+
+        graph.addEdge("followUp", "evaluate");
 
         // MySQL Checkpoint Saver
         MysqlSaver saver = MysqlSaver.builder()
@@ -396,6 +422,7 @@ public class InterviewGraphBuilder {
 
         RunnableConfig config = RunnableConfig.builder()
                 .threadId(sessionId)
+                .resume()
                 .build();
 
         Optional<StateSnapshot> currentState = compiled.stateOf(config);

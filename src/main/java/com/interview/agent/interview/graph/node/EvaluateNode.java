@@ -71,12 +71,17 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         evaluation.put("followUpStrategy", policy.followUpStrategy().name());
 
         // 评估完成后，根据策略生成追问
-        String followUp = followUpGenerator.generateFollowUp(
-                state.getCurrentQuestion(),
-                state.getCurrentAnswer(),
-                evaluation,
-                policy
-        );
+        // 仅在非追问轮且非 coding 环节时生成追问
+        String followUp = "";
+        if (!state.isFollowUpRound() && !"coding".equals(state.getCurrentAgent())) {
+            followUp = followUpGenerator.generateFollowUp(
+                    state.getCurrentQuestion(),
+                    state.getCurrentAnswer(),
+                    evaluation,
+                    policy
+            );
+            state.setPendingFollowUp(followUp);
+        }
         evaluation.put("followUp", followUp);
 
         // 记录到 rounds
@@ -87,7 +92,17 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         record.setQuestion(state.getCurrentQuestion());
         record.setAnswer(state.getCurrentAnswer());
         record.setEvaluation(evaluation);
+        // 追问轮标记
+        if (state.isFollowUpRound()) {
+            record.setFollowup(true);
+            record.setFollowupTarget((long) state.getCurrentRound());
+        }
         state.getRounds().add(record);
+
+        // 追问轮评估完成后重置标志
+        if (state.isFollowUpRound()) {
+            state.setIsFollowUpRound(false);
+        }
 
         // 评估完成后更新知识点
         try {

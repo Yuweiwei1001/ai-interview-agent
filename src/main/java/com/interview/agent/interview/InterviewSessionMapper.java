@@ -21,4 +21,7 @@ public interface InterviewSessionMapper {
 
     @Update("UPDATE interview_session SET status = #{status}, updated_at = NOW() WHERE id = #{id}")
     void updateStatus(@Param("id") String id, @Param("status") String status);
+
+    @Update("UPDATE interview_session SET interview_plan = #{plan}, updated_at = NOW() WHERE id = #{id}")
+    void updatePlan(@Param("id") String id, @Param("plan") String plan);
 }

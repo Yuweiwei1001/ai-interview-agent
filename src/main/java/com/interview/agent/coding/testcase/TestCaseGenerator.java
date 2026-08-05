@@ -1,5 +1,7 @@
 package com.interview.agent.coding.testcase;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interview.agent.coding.testcase.TestCaseService.TestCase;
 import com.interview.agent.coding.testcase.TestCaseService.TestRunResult;
 import com.interview.agent.common.ai.LlmCallWrapper;
@@ -8,21 +10,22 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * AI 动态测试用例生成器
  * 基于题目、代码与预设用例执行情况，由 LLM 生成额外的边界测试用例；
- * LLM 不可用时降级为本地边界用例
+ * LLM 不可用或 JSON 解析失败时返回空列表（不注入假用例，避免拉低真实分数）
  */
 @Component
 public class TestCaseGenerator {
     private static final Logger log = LoggerFactory.getLogger(TestCaseGenerator.class);
     private final ChatClient chatClient;
+    private final ObjectMapper objectMapper;
 
-    public TestCaseGenerator(ChatClient.Builder builder) {
+    public TestCaseGenerator(ChatClient.Builder builder, ObjectMapper objectMapper) {
         this.chatClient = builder.build();
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -38,16 +41,10 @@ public class TestCaseGenerator {
                     () -> null
             );
 
-            if (response == null || response.isBlank()) {
-                return List.of();
-            }
-
-            // 解析返回的用例（简化实现：返回预设的边界用例）
-            return generateFallbackCases(questionTitle);
-
+            return parseCases(response);
         } catch (Exception e) {
-            log.warn("动态用例生成失败，使用降级用例", e);
-            return generateFallbackCases(questionTitle);
+            log.warn("动态用例生成失败，返回空列表", e);
+            return List.of();
         }
     }
 
@@ -61,26 +58,23 @@ public class TestCaseGenerator {
         for (TestCaseService.TestCaseResult r : presetResult.getResults()) {
             sb.append("- ").append(r.getName()).append(": ").append(r.isPassed() ? "通过" : "失败").append("\n");
         }
-        sb.append("\n请生成3-5个额外的测试用例，每个包含名称、输入和期望输出，覆盖边界情况。");
+        sb.append("请根据题目和代码生成3-5个额外的边界测试用例，输出JSON数组，格式：[{\"name\":\"用例名\",\"input\":\"输入内容\",\"expectedOutput\":\"期望输出\"}]。只输出JSON，不要其他文字。\n");
         return sb.toString();
     }
 
-    private List<TestCase> generateFallbackCases(String questionTitle) {
-        List<TestCase> cases = new ArrayList<>();
-        cases.add(new TestCase("边界测试 1: 空输入", "", ""));
-        cases.add(new TestCase("边界测试 2: 大输入", "1000", "处理完成"));
-        cases.add(new TestCase("边界测试 3: 特殊值", "0", "0"));
-        return cases;
-    }
-
-    // 内部类用于结果解析
-    public static class TestCaseResult {
-        private String name;
-        private boolean passed;
-
-        public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
-        public boolean isPassed() { return passed; }
-        public void setPassed(boolean passed) { this.passed = passed; }
+    /**
+     * 解析 LLM 返回的 JSON 用例数组；解析失败返回空列表（不注入假用例）
+     */
+    private List<TestCase> parseCases(String response) {
+        if (response == null || response.isBlank()) return List.of();
+        try {
+            // 去除可能的 ```json 包裹
+            String json = response.replaceAll("```json|```", "").trim();
+            List<TestCase> cases = objectMapper.readValue(json, new TypeReference<List<TestCase>>() {});
+            return cases != null ? cases : List.of();
+        } catch (Exception e) {
+            log.warn("动态用例 JSON 解析失败", e);
+            return List.of();
+        }
     }
 }

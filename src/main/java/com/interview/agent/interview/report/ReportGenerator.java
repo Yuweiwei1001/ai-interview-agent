@@ -8,7 +8,6 @@ import com.interview.agent.sse.SseRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -37,9 +36,8 @@ public class ReportGenerator {
     }
 
     /**
-     * 异步生成报告（面试结束后调用）
+     * 生成报告（同步调用，保证 REPORT_READY 先于 COMPLETE 推送；由面试执行线程池承载）
      */
-    @Async
     public void generateReport(String sessionId) {
         try {
             log.info("开始生成报告: sessionId={}", sessionId);
