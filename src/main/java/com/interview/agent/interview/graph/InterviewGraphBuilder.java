@@ -15,7 +15,9 @@ import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interview.agent.interview.agent.CodingAgent;
 import com.interview.agent.interview.agent.CoordinatorAgent;
+import com.interview.agent.interview.agent.FollowUpGenerator;
 import com.interview.agent.interview.agent.ProjectAgent;
+import com.interview.agent.interview.agent.QuestionDeduper;
 import com.interview.agent.interview.agent.SpeakerAgent;
 import com.interview.agent.interview.agent.TechnicalAgent;
 import com.interview.agent.interview.agent.tool.AskQuestionTool;
@@ -83,12 +85,15 @@ public class InterviewGraphBuilder {
     private final CodingAgent codingAgent;
     private final SpeakerAgent speakerAgent;
     private final BehaviorPolicyFactory policyFactory;
+    private final QuestionDeduper questionDeduper;
+    private final FollowUpGenerator followUpGenerator;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
                                  CoordinatorAgent coordinatorAgent, TechnicalAgent technicalAgent,
                                  ProjectAgent projectAgent, CodingAgent codingAgent, SpeakerAgent speakerAgent,
-                                 BehaviorPolicyFactory policyFactory) {
+                                 BehaviorPolicyFactory policyFactory, QuestionDeduper questionDeduper,
+                                 FollowUpGenerator followUpGenerator) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -98,6 +103,8 @@ public class InterviewGraphBuilder {
         this.codingAgent = codingAgent;
         this.speakerAgent = speakerAgent;
         this.policyFactory = policyFactory;
+        this.questionDeduper = questionDeduper;
+        this.followUpGenerator = followUpGenerator;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -117,9 +124,9 @@ public class InterviewGraphBuilder {
     public CompiledGraph buildGraph() throws Exception {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
-        CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent);
+        CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent, questionDeduper);
         AskNode askNode = new AskNode(askQuestionTool);
-        EvaluateNode evaluateNode = new EvaluateNode(policyFactory);
+        EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());

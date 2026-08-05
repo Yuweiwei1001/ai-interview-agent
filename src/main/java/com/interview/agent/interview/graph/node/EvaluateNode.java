@@ -1,5 +1,6 @@
 package com.interview.agent.interview.graph.node;
 
+import com.interview.agent.interview.agent.FollowUpGenerator;
 import com.interview.agent.interview.graph.InterviewState;
 import com.interview.agent.interview.graph.InterviewState.RoundRecord;
 import com.interview.agent.interview.policy.BehaviorPolicy;
@@ -14,9 +15,11 @@ import java.util.function.Function;
 public class EvaluateNode implements Function<InterviewState, InterviewState> {
     private static final Logger log = LoggerFactory.getLogger(EvaluateNode.class);
     private final BehaviorPolicyFactory policyFactory;
+    private final FollowUpGenerator followUpGenerator;
 
-    public EvaluateNode(BehaviorPolicyFactory policyFactory) {
+    public EvaluateNode(BehaviorPolicyFactory policyFactory, FollowUpGenerator followUpGenerator) {
         this.policyFactory = policyFactory;
+        this.followUpGenerator = followUpGenerator;
     }
 
     @Override
@@ -47,6 +50,15 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         evaluation.put("hint", hint);
         evaluation.put("strictness", policy.evaluationStrictness().name());
         evaluation.put("followUpStrategy", policy.followUpStrategy().name());
+
+        // 评估完成后，根据策略生成追问
+        String followUp = followUpGenerator.generateFollowUp(
+                state.getCurrentQuestion(),
+                state.getCurrentAnswer(),
+                evaluation,
+                policy
+        );
+        evaluation.put("followUp", followUp);
 
         // 记录到 rounds
         RoundRecord record = new RoundRecord();

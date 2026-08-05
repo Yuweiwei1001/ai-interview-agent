@@ -3,6 +3,7 @@ package com.interview.agent.interview.graph.node;
 import com.interview.agent.interview.agent.CodingAgent;
 import com.interview.agent.interview.agent.CoordinatorAgent;
 import com.interview.agent.interview.agent.ProjectAgent;
+import com.interview.agent.interview.agent.QuestionDeduper;
 import com.interview.agent.interview.agent.TechnicalAgent;
 import com.interview.agent.interview.graph.InterviewState;
 import org.slf4j.Logger;
@@ -19,13 +20,16 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
     private final TechnicalAgent technicalAgent;
     private final ProjectAgent projectAgent;
     private final CodingAgent codingAgent;
+    private final QuestionDeduper questionDeduper;
 
     public CoordinatorNode(CoordinatorAgent coordinatorAgent, TechnicalAgent technicalAgent,
-                          ProjectAgent projectAgent, CodingAgent codingAgent) {
+                          ProjectAgent projectAgent, CodingAgent codingAgent,
+                          QuestionDeduper questionDeduper) {
         this.coordinatorAgent = coordinatorAgent;
         this.technicalAgent = technicalAgent;
         this.projectAgent = projectAgent;
         this.codingAgent = codingAgent;
+        this.questionDeduper = questionDeduper;
     }
 
     @Override
@@ -46,23 +50,30 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
 
         state.setCurrentAgent(nextAgent);
 
-        // 对应 Agent 出题
-        String question;
-        switch (nextAgent) {
-            case "technical":
-                question = technicalAgent.generateQuestion(topic, difficulty, state.getResumeText(), askedTopics);
-                break;
-            case "project":
-                question = projectAgent.generateQuestion(topic, difficulty, state.getResumeText(), askedTopics);
-                break;
-            case "coding":
-                question = codingAgent.generateQuestion(topic, difficulty, state.getResumeText(), askedTopics);
-                break;
-            default:
-                question = "请介绍一下你的技术背景和项目经验。";
+        // 对应 Agent 出题（含去重检查，最多重试3次）
+        List<String> existingQuestions = state.getRounds().stream()
+                .map(InterviewState.RoundRecord::getQuestion)
+                .filter(q -> q != null && !q.isBlank())
+                .collect(Collectors.toList());
+
+        String question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics);
+        int retryCount = 0;
+        while (questionDeduper.isDuplicate(question, existingQuestions) && retryCount < 3) {
+            log.warn("题目重复，重新生成: retry={}, agent={}", retryCount, nextAgent);
+            question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics);
+            retryCount++;
         }
 
         state.setCurrentQuestion(question);
         return state;
+    }
+
+    private String generateQuestion(String nextAgent, String topic, String difficulty, String resumeText, List<String> askedTopics) {
+        return switch (nextAgent) {
+            case "technical" -> technicalAgent.generateQuestion(topic, difficulty, resumeText, askedTopics);
+            case "project" -> projectAgent.generateQuestion(topic, difficulty, resumeText, askedTopics);
+            case "coding" -> codingAgent.generateQuestion(topic, difficulty, resumeText, askedTopics);
+            default -> "请介绍一下你的技术背景和项目经验。";
+        };
     }
 }
