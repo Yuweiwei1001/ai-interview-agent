@@ -1,0 +1,37 @@
+﻿# === Java / Maven ===
+target/
+*.class
+*.jar
+*.war
+hs_err_pid*
+
+# === IDE ===
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+
+# === Node / Frontend ===
+node_modules/
+dist/
+.nuxt/
+.output/
+.env
+.env.*
+!.env.example
+
+# === OS ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# === Logs ===
+*.log
+
+# === Local secrets（本地密钥配置，不入库） ===
+application-local.yml
+!application-local.yml.example
