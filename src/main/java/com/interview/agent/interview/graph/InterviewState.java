@@ -24,6 +24,12 @@ public class InterviewState {
     private String status; // in_progress, completed, interrupted
     private String phase = "TEXT"; // TEXT: 文字面试（跳过 Speaker），VOICE: 语音面试（Speaker 合成）
 
+    // Coding 环节字段：代码评估结果与重试状态（供行为策略分流使用）
+    private String currentLanguage;   // 当前编码题语言（java/python 等）
+    private int codingScore = -1;     // 最近一次代码评估综合评分（-1 表示未评估）
+    private int codingRetryCount;     // 编码题已重试次数（中性型限制一次修改机会）
+    private String codingHint;        // 编码题提示（温和型给提示重试）
+
     public InterviewState() {
         this.rounds = new ArrayList<>();
         this.currentRound = 0;
@@ -63,6 +69,14 @@ public class InterviewState {
     public void setStatus(String status) { this.status = status; }
     public String getPhase() { return phase; }
     public void setPhase(String phase) { this.phase = phase; }
+    public String getCurrentLanguage() { return currentLanguage; }
+    public void setCurrentLanguage(String currentLanguage) { this.currentLanguage = currentLanguage; }
+    public int getCodingScore() { return codingScore; }
+    public void setCodingScore(int codingScore) { this.codingScore = codingScore; }
+    public int getCodingRetryCount() { return codingRetryCount; }
+    public void setCodingRetryCount(int codingRetryCount) { this.codingRetryCount = codingRetryCount; }
+    public String getCodingHint() { return codingHint; }
+    public void setCodingHint(String codingHint) { this.codingHint = codingHint; }
 
     public static class RoundRecord {
         private int roundNumber;

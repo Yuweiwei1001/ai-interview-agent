@@ -201,10 +201,14 @@ public class InterviewService {
         }
 
         if ("waiting_code".equals(finalState.getStatus())) {
-            // 又遇到编码题，继续挂起等待
+            // 又遇到编码题，继续挂起等待；带上人格策略生成的提示
             log.info("面试图再次挂起，等待新编码题提交: sessionId={}", sessionId);
             sessionMapper.updateStatus(sessionId, "waiting_code");
-            sseRegistry.sendEvent(sessionId, "WAITING_CODE", "新的编码题已出，请提交代码");
+            String message = "新的编码题已出，请提交代码";
+            if (finalState.getCodingHint() != null && !finalState.getCodingHint().isBlank()) {
+                message = finalState.getCodingHint();
+            }
+            sseRegistry.sendEvent(sessionId, "WAITING_CODE", message);
             return;
         }
 

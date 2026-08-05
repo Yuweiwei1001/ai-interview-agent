@@ -14,6 +14,8 @@ import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
 import com.alibaba.cloud.ai.graph.state.StateSnapshot;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.interview.agent.coding.CodeEvaluationEngine;
+import com.interview.agent.coding.testcase.TestCaseService;
 import com.interview.agent.interview.agent.CodingAgent;
 import com.interview.agent.interview.agent.ContextWindowManager;
 import com.interview.agent.interview.agent.CoordinatorAgent;
@@ -93,6 +95,8 @@ public class InterviewGraphBuilder {
     private final FollowUpGenerator followUpGenerator;
     private final ContextWindowManager contextWindowManager;
     private final KnowledgePointService knowledgePointService;
+    private final CodeEvaluationEngine codeEvaluationEngine;
+    private final TestCaseService testCaseService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
@@ -100,7 +104,8 @@ public class InterviewGraphBuilder {
                                  ProjectAgent projectAgent, CodingAgent codingAgent, SpeakerAgent speakerAgent,
                                  BehaviorPolicyFactory policyFactory, QuestionDeduper questionDeduper,
                                  FollowUpGenerator followUpGenerator, ContextWindowManager contextWindowManager,
-                                 KnowledgePointService knowledgePointService) {
+                                 KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
+                                 TestCaseService testCaseService) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -114,6 +119,8 @@ public class InterviewGraphBuilder {
         this.followUpGenerator = followUpGenerator;
         this.contextWindowManager = contextWindowManager;
         this.knowledgePointService = knowledgePointService;
+        this.codeEvaluationEngine = codeEvaluationEngine;
+        this.testCaseService = testCaseService;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -135,7 +142,8 @@ public class InterviewGraphBuilder {
         PlanNode planNode = new PlanNode(planGenerator);
         CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent, questionDeduper, contextWindowManager);
         AskNode askNode = new AskNode(askQuestionTool);
-        EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService);
+        EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
+                codeEvaluationEngine, testCaseService);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());
@@ -179,6 +187,26 @@ public class InterviewGraphBuilder {
             return Map.of(STATE_KEY, interviewState);
         }));
 
+        // codingRetryWait 节点：代码不达标时按行为策略再次挂起，等待修改后的代码
+        graph.addNode("codingRetryWait", node_async((NodeAction) state -> {
+            InterviewState interviewState = toInterviewState(state);
+            interviewState.setStatus("waiting_code");
+            interviewState.setCodingRetryCount(interviewState.getCodingRetryCount() + 1);
+
+            // 按人格生成提示（温和型给提示；压力型/中性型给默认提示）
+            BehaviorPolicy policy = policyFactory.getPolicy(interviewState.getPersona());
+            String hint = policy.generateHint(interviewState.getCurrentQuestion(),
+                    interviewState.getCurrentAnswer(), interviewState.getCodingScore());
+            if (hint == null || hint.isBlank()) {
+                hint = "当前代码未通过评估，请检查逻辑与边界情况后重新提交。";
+            }
+            interviewState.setCodingHint(hint);
+
+            log.info("CodingRetryWait: 已挂起等待修改后代码, sessionId={}, retryCount={}, hint={}",
+                    interviewState.getSessionId(), interviewState.getCodingRetryCount(), hint);
+            return Map.of(STATE_KEY, interviewState);
+        }));
+
         // 条件边：coordinator → codingWait（Coding 环节）或 ask（其他环节）
         graph.addConditionalEdges("coordinator",
                 edge_async(state -> {
@@ -188,6 +216,7 @@ public class InterviewGraphBuilder {
                 Map.of("ask", "ask", "codingWait", "codingWait"));
 
         graph.addEdge("codingWait", "evaluate");
+        graph.addEdge("codingRetryWait", "evaluate");
 
         // Speaker bypass：文字面试（phase == TEXT）跳过 Speaker 节点直接评估；语音面试走 Speaker 合成
         graph.addConditionalEdges("ask",
@@ -195,10 +224,21 @@ public class InterviewGraphBuilder {
                 Map.of("speaker", "speaker", "skip_speaker", "evaluate"));
         graph.addEdge("speaker", "evaluate");
 
-        // 条件边：结束→END；未结束→回到 coordinator 继续多 Agent 编排
+        // 条件边：结束→END；未结束→回到 coordinator 继续多 Agent 编排；
+        // Coding 环节代码评估完成后，按行为策略分流（压力型直接切题 / 温和型给提示重试 / 中性型一次修改机会）
         graph.addConditionalEdges("evaluate",
-                edge_async(state -> shouldEnd(toInterviewState(state)) ? "end" : "coordinator"),
-                Map.of("coordinator", "coordinator", "end", END));
+                edge_async(state -> {
+                    InterviewState interviewState = toInterviewState(state);
+                    // Coding 环节：代码评估完成后按行为策略分流
+                    if ("coding".equals(interviewState.getCurrentAgent())) {
+                        if (shouldEnd(interviewState)) {
+                            return "end";
+                        }
+                        return decideCodingNext(interviewState);
+                    }
+                    return shouldEnd(interviewState) ? "end" : "coordinator";
+                }),
+                Map.of("coordinator", "coordinator", "end", END, "codingRetryWait", "codingRetryWait"));
 
         // MySQL Checkpoint Saver
         MysqlSaver saver = MysqlSaver.builder()
@@ -209,8 +249,54 @@ public class InterviewGraphBuilder {
         return graph.compile(CompileConfig.builder()
                 .saverConfig(SaverConfig.builder().register(saver).build())
                 .recursionLimit(50)
-                .interruptBefore("codingWait")
+                .interruptBefore("codingWait", "codingRetryWait")
                 .build());
+    }
+
+    /**
+     * Coding 环节代码评估完成后的行为策略分流：
+     * <ul>
+     *   <li>达标（score ≥ 人格对应阈值）：进入 coordinator 继续下一轮</li>
+     *   <li>压力型（pressure）：代码不达标直接切题，不给予重试机会</li>
+     *   <li>温和型（gentle）：给提示，挂起允许重试修改</li>
+     *   <li>中性型（neutral）：给一次修改机会，超过一次直接切题</li>
+     * </ul>
+     */
+    private String decideCodingNext(InterviewState state) {
+        int score = state.getCodingScore();
+        BehaviorPolicy policy = policyFactory.getPolicy(state.getPersona());
+
+        // 根据严格度设置不同的通过阈值
+        int passThreshold = switch (policy.evaluationStrictness()) {
+            case STRICT -> 80;
+            case STANDARD -> 60;
+            case LENIENT -> 40;
+        };
+
+        if (score >= passThreshold) {
+            log.info("Coding 评估达标: score={}, threshold={}, 进入下一轮, sessionId={}",
+                    score, passThreshold, state.getSessionId());
+            return "coordinator";
+        }
+
+        // 不达标：按人格分流
+        String persona = state.getPersona() == null ? "neutral" : state.getPersona().toLowerCase();
+        switch (persona) {
+            case "pressure":
+                log.info("压力型人格: 代码不达标直接切题, score={}, sessionId={}", score, state.getSessionId());
+                return "coordinator";
+            case "gentle":
+                log.info("温和型人格: 给提示允许重试, score={}, sessionId={}", score, state.getSessionId());
+                return "codingRetryWait";
+            default:
+                if (state.getCodingRetryCount() >= 1) {
+                    log.info("中性型人格: 修改机会已用完, 直接切题, score={}, sessionId={}",
+                            score, state.getSessionId());
+                    return "coordinator";
+                }
+                log.info("中性型人格: 一次修改机会, score={}, sessionId={}", score, state.getSessionId());
+                return "codingRetryWait";
+        }
     }
 
     /**
@@ -320,6 +406,7 @@ public class InterviewGraphBuilder {
         // 从 Checkpoint 获取当前状态，注入代码作为答案
         InterviewState state = toInterviewState(currentState.get().state());
         state.setCurrentAnswer(code);
+        state.setCurrentLanguage(language);
         state.setStatus("in_progress");
 
         // 携带更新后的状态恢复执行（从 codingWait 节点继续）
