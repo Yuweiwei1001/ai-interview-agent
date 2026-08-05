@@ -9,6 +9,7 @@ import com.interview.agent.interview.model.InterviewRound;
 import com.interview.agent.interview.model.InterviewSession;
 import com.interview.agent.interview.plan.InterviewPlan;
 import com.interview.agent.interview.report.InterviewReport;
+import com.interview.agent.sse.SseRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -23,10 +24,12 @@ import java.util.List;
 public class InterviewController {
     private final InterviewService interviewService;
     private final ObjectMapper objectMapper;
+    private final SseRegistry sseRegistry;
 
-    public InterviewController(InterviewService interviewService, ObjectMapper objectMapper) {
+    public InterviewController(InterviewService interviewService, ObjectMapper objectMapper, SseRegistry sseRegistry) {
         this.interviewService = interviewService;
         this.objectMapper = objectMapper;
+        this.sseRegistry = sseRegistry;
     }
 
     @PostMapping("/plan")
@@ -39,6 +42,15 @@ public class InterviewController {
     @PostMapping("/start")
     public SseEmitter startInterview(@Valid @RequestBody InterviewStartDTO dto) {
         return interviewService.startInterview(dto);
+    }
+
+    /**
+     * 重连 SSE 流（面试中途刷新页面/编码页监听复用）
+     */
+    @GetMapping("/{id}/stream")
+    public SseEmitter stream(@PathVariable String id) {
+        InterviewSession session = interviewService.getSession(id);
+        return sseRegistry.register(id);
     }
 
     @PostMapping("/{id}/answer")
