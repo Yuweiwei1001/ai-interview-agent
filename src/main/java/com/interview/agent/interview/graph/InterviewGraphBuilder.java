@@ -24,6 +24,8 @@ import com.interview.agent.interview.graph.node.CoordinatorNode;
 import com.interview.agent.interview.graph.node.EvaluateNode;
 import com.interview.agent.interview.graph.node.PlanNode;
 import com.interview.agent.interview.plan.PlanGenerator;
+import com.interview.agent.interview.policy.BehaviorPolicy;
+import com.interview.agent.interview.policy.BehaviorPolicyFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -80,11 +82,13 @@ public class InterviewGraphBuilder {
     private final ProjectAgent projectAgent;
     private final CodingAgent codingAgent;
     private final SpeakerAgent speakerAgent;
+    private final BehaviorPolicyFactory policyFactory;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
                                  CoordinatorAgent coordinatorAgent, TechnicalAgent technicalAgent,
-                                 ProjectAgent projectAgent, CodingAgent codingAgent, SpeakerAgent speakerAgent) {
+                                 ProjectAgent projectAgent, CodingAgent codingAgent, SpeakerAgent speakerAgent,
+                                 BehaviorPolicyFactory policyFactory) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -93,6 +97,7 @@ public class InterviewGraphBuilder {
         this.projectAgent = projectAgent;
         this.codingAgent = codingAgent;
         this.speakerAgent = speakerAgent;
+        this.policyFactory = policyFactory;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -114,7 +119,7 @@ public class InterviewGraphBuilder {
         PlanNode planNode = new PlanNode(planGenerator);
         CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent);
         AskNode askNode = new AskNode(askQuestionTool);
-        EvaluateNode evaluateNode = new EvaluateNode();
+        EvaluateNode evaluateNode = new EvaluateNode(policyFactory);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());
@@ -197,14 +202,25 @@ public class InterviewGraphBuilder {
         if (state.getCurrentRound() >= state.getMaxRounds()) {
             return true;
         }
-        // 简单结束条件：连续3轮得分>=60视为通过
+
+        BehaviorPolicy policy = policyFactory.getPolicy(state.getPersona());
+        BehaviorPolicy.EvaluationStrictness strictness = policy.evaluationStrictness();
+
+        // 根据严格度设置不同的通过阈值
+        int passThreshold = switch (strictness) {
+            case STRICT -> 80;
+            case STANDARD -> 60;
+            case LENIENT -> 40;
+        };
+
+        // 连续3轮达到阈值视为通过
         if (state.getRounds().size() >= 3) {
             List<InterviewState.RoundRecord> last3 = state.getRounds()
                     .subList(state.getRounds().size() - 3, state.getRounds().size());
             boolean allPassed = last3.stream()
                     .allMatch(r -> {
                         Object score = r.getEvaluation().get("score");
-                        return score instanceof Number && ((Number) score).intValue() >= 60;
+                        return score instanceof Number && ((Number) score).intValue() >= passThreshold;
                     });
             if (allPassed) {
                 return true;
