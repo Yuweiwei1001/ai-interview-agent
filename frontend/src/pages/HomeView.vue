@@ -17,6 +17,7 @@ function handleLogout() {
       <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
         <h1 class="text-xl font-bold text-slate-800">AI 面试官</h1>
         <div class="flex items-center gap-4">
+          <router-link to="/resumes" class="text-slate-600 hover:text-blue-600">简历管理</router-link>
           <span class="text-slate-600">{{ auth.user?.username }}</span>
           <button @click="handleLogout"
             class="px-4 py-1 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm">
