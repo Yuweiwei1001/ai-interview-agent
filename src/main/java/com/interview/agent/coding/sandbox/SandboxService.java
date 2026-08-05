@@ -56,7 +56,8 @@ public class SandboxService {
                         "--memory", config.getMemoryLimit(),
                         "--cpus", String.valueOf(config.getCpuCount()),
                         "--pids-limit", String.valueOf(config.getPidsLimit()),
-                        "-v", tempDir.toString() + ":/workspace:ro",
+                        // 编译阶段需写入 .class 文件，挂载为读写；运行阶段再以只读挂载
+                        "-v", tempDir.toString() + ":/workspace",
                         config.getJavaImage(),
                         "javac", "/workspace/Solution.java"
                 );
@@ -68,9 +69,10 @@ public class SandboxService {
                     return new SandboxResult(false, "", "编译错误:\n" + error, 0, false);
                 }
 
-                // 运行
+                // 运行（-i 保持 stdin 打开以注入测试输入）
                 command = Arrays.asList(
                         "docker", "run", "--rm",
+                        "-i",
                         "--network", "none",
                         "--memory", config.getMemoryLimit(),
                         "--cpus", String.valueOf(config.getCpuCount()),
@@ -85,8 +87,10 @@ public class SandboxService {
                 Path sourceFile = tempDir.resolve(fileName);
                 Files.writeString(sourceFile, code, StandardCharsets.UTF_8);
 
+                // 运行（-i 保持 stdin 打开以注入测试输入）
                 command = Arrays.asList(
                         "docker", "run", "--rm",
+                        "-i",
                         "--network", "none",
                         "--memory", config.getMemoryLimit(),
                         "--cpus", String.valueOf(config.getCpuCount()),
