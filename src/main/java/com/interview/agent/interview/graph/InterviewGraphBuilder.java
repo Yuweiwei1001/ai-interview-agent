@@ -29,6 +29,7 @@ import com.interview.agent.interview.graph.node.PlanNode;
 import com.interview.agent.interview.plan.PlanGenerator;
 import com.interview.agent.interview.policy.BehaviorPolicy;
 import com.interview.agent.interview.policy.BehaviorPolicyFactory;
+import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -89,13 +90,15 @@ public class InterviewGraphBuilder {
     private final QuestionDeduper questionDeduper;
     private final FollowUpGenerator followUpGenerator;
     private final ContextWindowManager contextWindowManager;
+    private final KnowledgePointService knowledgePointService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
                                  CoordinatorAgent coordinatorAgent, TechnicalAgent technicalAgent,
                                  ProjectAgent projectAgent, CodingAgent codingAgent, SpeakerAgent speakerAgent,
                                  BehaviorPolicyFactory policyFactory, QuestionDeduper questionDeduper,
-                                 FollowUpGenerator followUpGenerator, ContextWindowManager contextWindowManager) {
+                                 FollowUpGenerator followUpGenerator, ContextWindowManager contextWindowManager,
+                                 KnowledgePointService knowledgePointService) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -108,6 +111,7 @@ public class InterviewGraphBuilder {
         this.questionDeduper = questionDeduper;
         this.followUpGenerator = followUpGenerator;
         this.contextWindowManager = contextWindowManager;
+        this.knowledgePointService = knowledgePointService;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -129,7 +133,7 @@ public class InterviewGraphBuilder {
         PlanNode planNode = new PlanNode(planGenerator);
         CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent, questionDeduper, contextWindowManager);
         AskNode askNode = new AskNode(askQuestionTool);
-        EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator);
+        EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());

@@ -1,6 +1,7 @@
 package com.interview.agent.interview.plan;
 
 import com.interview.agent.common.ai.LlmCallWrapper;
+import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -14,9 +15,11 @@ import java.util.Map;
 public class PlanGenerator {
     private static final Logger log = LoggerFactory.getLogger(PlanGenerator.class);
     private final ChatClient chatClient;
+    private final KnowledgePointService knowledgePointService;
 
-    public PlanGenerator(ChatClient.Builder chatClientBuilder) {
+    public PlanGenerator(ChatClient.Builder chatClientBuilder, KnowledgePointService knowledgePointService) {
         this.chatClient = chatClientBuilder.build();
+        this.knowledgePointService = knowledgePointService;
     }
 
     public InterviewPlan generatePlan(String resumeText, String jdText, String direction, String persona, int durationMinutes) {
@@ -42,6 +45,10 @@ public class PlanGenerator {
         sb.append("## 候选人简历\n").append(resumeText != null ? resumeText : "无简历").append("\n\n");
         if (jdText != null && !jdText.isBlank()) {
             sb.append("## 职位描述\n").append(jdText).append("\n\n");
+        }
+        String knowledgeSummary = knowledgePointService.buildKnowledgeSummary();
+        if (!knowledgeSummary.isBlank()) {
+            sb.append("## 历史知识点记录\n").append(knowledgeSummary).append("\n\n");
         }
         sb.append("请输出一个JSON格式的面试计划，包含以下字段：\n");
         sb.append("- overallStrategy: 整体面试策略描述\n");

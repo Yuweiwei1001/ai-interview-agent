@@ -5,10 +5,12 @@ import com.interview.agent.interview.graph.InterviewState;
 import com.interview.agent.interview.graph.InterviewState.RoundRecord;
 import com.interview.agent.interview.policy.BehaviorPolicy;
 import com.interview.agent.interview.policy.BehaviorPolicyFactory;
+import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -16,10 +18,13 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
     private static final Logger log = LoggerFactory.getLogger(EvaluateNode.class);
     private final BehaviorPolicyFactory policyFactory;
     private final FollowUpGenerator followUpGenerator;
+    private final KnowledgePointService knowledgePointService;
 
-    public EvaluateNode(BehaviorPolicyFactory policyFactory, FollowUpGenerator followUpGenerator) {
+    public EvaluateNode(BehaviorPolicyFactory policyFactory, FollowUpGenerator followUpGenerator,
+                        KnowledgePointService knowledgePointService) {
         this.policyFactory = policyFactory;
         this.followUpGenerator = followUpGenerator;
+        this.knowledgePointService = knowledgePointService;
     }
 
     @Override
@@ -69,6 +74,14 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         record.setAnswer(state.getCurrentAnswer());
         record.setEvaluation(evaluation);
         state.getRounds().add(record);
+
+        // 评估完成后更新知识点
+        try {
+            List<String> knowledgePoints = (List<String>) evaluation.get("knowledgePoints");
+            knowledgePointService.updateFromEvaluation(knowledgePoints, evaluation);
+        } catch (Exception e) {
+            log.warn("知识点更新失败", e);
+        }
 
         return state;
     }
