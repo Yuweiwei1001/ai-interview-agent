@@ -126,6 +126,14 @@ public class InterviewService {
                 // 执行面试图
                 InterviewState finalState = graphBuilder.executeInterview(initialState);
 
+                // 检查是否挂起等待代码提交
+                if ("waiting_code".equals(finalState.getStatus())) {
+                    log.info("面试图已挂起，等待代码提交: sessionId={}", sessionId);
+                    sessionMapper.updateStatus(sessionId, "waiting_code");
+                    sseRegistry.sendEvent(sessionId, "WAITING_CODE", "编码题已出，请提交代码");
+                    return;
+                }
+
                 // 保存轮次记录
                 saveRounds(sessionId, finalState);
 
@@ -158,6 +166,75 @@ public class InterviewService {
         });
 
         return emitter;
+    }
+
+    /**
+     * 恢复 Coding 面试执行（代码提交后恢复图执行）
+     */
+    public void resumeCoding(String sessionId, String code, String language) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                log.info("恢复 Coding 面试: sessionId={}, language={}", sessionId, language);
+
+                // 从 Checkpoint 恢复图执行，携带代码
+                InterviewState finalState = graphBuilder.resumeInterview(sessionId, code, language);
+
+                // 处理恢复后的结果
+                handleGraphResult(sessionId, finalState);
+
+            } catch (Exception e) {
+                log.error("恢复 Coding 面试失败: sessionId={}", sessionId, e);
+                sessionMapper.updateStatus(sessionId, "interrupted");
+                sseRegistry.sendError(sessionId, "编码提交处理失败: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * 处理图执行结果（完成或继续挂起）
+     */
+    private void handleGraphResult(String sessionId, InterviewState finalState) {
+        if (finalState == null) {
+            log.warn("图执行返回空状态: sessionId={}", sessionId);
+            sessionMapper.updateStatus(sessionId, "interrupted");
+            return;
+        }
+
+        if ("waiting_code".equals(finalState.getStatus())) {
+            // 又遇到编码题，继续挂起等待
+            log.info("面试图再次挂起，等待新编码题提交: sessionId={}", sessionId);
+            sessionMapper.updateStatus(sessionId, "waiting_code");
+            sseRegistry.sendEvent(sessionId, "WAITING_CODE", "新的编码题已出，请提交代码");
+            return;
+        }
+
+        // 保存轮次记录
+        saveRounds(sessionId, finalState);
+
+        // 计算总分
+        double avgScore = finalState.getRounds().stream()
+                .mapToInt(r -> {
+                    Object score = r.getEvaluation().get("score");
+                    return score instanceof Number ? ((Number) score).intValue() : 0;
+                })
+                .average()
+                .orElse(0);
+
+        InterviewSession session = sessionMapper.findById(sessionId);
+        if (session == null) {
+            log.warn("会话不存在: sessionId={}", sessionId);
+            return;
+        }
+        session.setOverallScore(BigDecimal.valueOf(avgScore));
+        session.setStatus("completed");
+        session.setCompletedAt(LocalDateTime.now());
+        sessionMapper.update(session);
+
+        // 报告生成
+        reportGenerator.generateReport(sessionId);
+
+        sseRegistry.sendEvent(sessionId, "COMPLETE", "面试完成");
+        sseRegistry.complete(sessionId);
     }
 
     /**

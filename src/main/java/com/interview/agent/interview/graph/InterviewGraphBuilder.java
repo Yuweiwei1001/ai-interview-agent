@@ -11,6 +11,7 @@ import com.alibaba.cloud.ai.graph.action.NodeAction;
 import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.CreateOption;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.mysql.MysqlSaver;
+import com.alibaba.cloud.ai.graph.state.StateSnapshot;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interview.agent.interview.agent.CodingAgent;
@@ -50,9 +51,10 @@ import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
  *
  * <p>图结构（参照 ThinkVerse/probe 已验证模式，Phase 1b 多 Agent 编排）：
  * <pre>
- * START → plan → coordinator → ask → evaluate ─条件边─→ 未结束→coordinator（继续）
- *                                    │                    已结束→END
- *                                    └─条件边(phase=TEXT 跳过 speaker)→evaluate
+ * START → plan → coordinator ─条件边─→ codingWait(挂起) → evaluate
+ *                  │                    ask → evaluate ─条件边─→ 未结束→coordinator（继续）
+ *                  │                                              已结束→END
+ *                  └─条件边(phase=TEXT 跳过 speaker)→evaluate
  * </pre>
  *
  * <p>关键点：
@@ -168,7 +170,24 @@ public class InterviewGraphBuilder {
 
         graph.addEdge(START, "plan");
         graph.addEdge("plan", "coordinator");
-        graph.addEdge("coordinator", "ask");
+        // codingWait 节点：Coding 环节挂起点，interruptBefore 挂起后等待代码提交
+        graph.addNode("codingWait", node_async((NodeAction) state -> {
+            InterviewState interviewState = toInterviewState(state);
+            interviewState.setStatus("waiting_code");
+            log.info("CodingWait: 已挂起等待代码提交, round={}, sessionId={}",
+                    interviewState.getCurrentRound(), interviewState.getSessionId());
+            return Map.of(STATE_KEY, interviewState);
+        }));
+
+        // 条件边：coordinator → codingWait（Coding 环节）或 ask（其他环节）
+        graph.addConditionalEdges("coordinator",
+                edge_async(state -> {
+                    InterviewState interviewState = toInterviewState(state);
+                    return "coding".equals(interviewState.getCurrentAgent()) ? "codingWait" : "ask";
+                }),
+                Map.of("ask", "ask", "codingWait", "codingWait"));
+
+        graph.addEdge("codingWait", "evaluate");
 
         // Speaker bypass：文字面试（phase == TEXT）跳过 Speaker 节点直接评估；语音面试走 Speaker 合成
         graph.addConditionalEdges("ask",
@@ -190,6 +209,7 @@ public class InterviewGraphBuilder {
         return graph.compile(CompileConfig.builder()
                 .saverConfig(SaverConfig.builder().register(saver).build())
                 .recursionLimit(50)
+                .interruptBefore("codingWait")
                 .build());
     }
 
@@ -274,6 +294,36 @@ public class InterviewGraphBuilder {
 
         // 空输入 + 已存在 checkpoint：从最新 checkpoint 的 nextNodeId 继续执行
         Optional<OverAllState> result = compiled.invoke(Map.of(), config);
+        return result.map(this::toInterviewState).orElse(null);
+    }
+
+    /**
+     * 从 Checkpoint 恢复 Coding 面试（携带代码提交，从 codingWait 继续执行）
+     *
+     * @param sessionId 会话 ID
+     * @param code      提交的代码
+     * @param language  编程语言
+     * @return 恢复执行后的面试状态
+     */
+    public InterviewState resumeInterview(String sessionId, String code, String language) throws Exception {
+        CompiledGraph compiled = buildGraph();
+
+        RunnableConfig config = RunnableConfig.builder()
+                .threadId(sessionId)
+                .build();
+
+        Optional<StateSnapshot> currentState = compiled.stateOf(config);
+        if (currentState.isEmpty()) {
+            throw new IllegalStateException("未找到会话 checkpoint，无法恢复: " + sessionId);
+        }
+
+        // 从 Checkpoint 获取当前状态，注入代码作为答案
+        InterviewState state = toInterviewState(currentState.get().state());
+        state.setCurrentAnswer(code);
+        state.setStatus("in_progress");
+
+        // 携带更新后的状态恢复执行（从 codingWait 节点继续）
+        Optional<OverAllState> result = compiled.invoke(Map.of(STATE_KEY, state), config);
         return result.map(this::toInterviewState).orElse(null);
     }
 }
