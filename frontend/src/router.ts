@@ -7,6 +7,7 @@ import JdsView from './pages/JdsView.vue';
 import InterviewStartView from './pages/InterviewStartView.vue';
 import InterviewRoomView from './pages/InterviewRoomView.vue';
 import ReportView from './pages/ReportView.vue';
+import CodingRoomView from './views/CodingRoomView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -20,6 +21,7 @@ const router = createRouter({
         { path: '/interview/start', name: 'InterviewStart', component: InterviewStartView, meta: { requiresAuth: true } },
         { path: '/interview/room', name: 'InterviewRoom', component: InterviewRoomView, meta: { requiresAuth: true } },
         { path: '/report/:id', name: 'Report', component: ReportView, meta: { requiresAuth: true } },
+        { path: '/coding', name: 'CodingRoom', component: CodingRoomView, meta: { requiresAuth: true } },
   ]
 });
 
