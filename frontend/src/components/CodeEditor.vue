@@ -75,5 +75,6 @@ defineExpose({ getValue, setValue });
 </script>
 
 <template>
-  <div ref="editorContainer" class="h-full w-full border border-slate-300 rounded-lg overflow-hidden"></div>
+  <!-- 美化：容器统一圆角/描边/阴影体系 -->
+  <div ref="editorContainer" class="h-full w-full border border-slate-200 rounded-xl overflow-hidden shadow-card"></div>
 </template>

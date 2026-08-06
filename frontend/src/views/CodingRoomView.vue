@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { NSelect, NButton, NAlert, NProgress } from 'naive-ui';
 import CodeEditor from '../components/CodeEditor.vue';
 import { runCode, submitCode, type TestRunResult } from '../api/coding';
 import { SseClient } from '../utils/sse';
@@ -21,6 +22,12 @@ const sseStatus = ref('');
 const retryHint = ref('');
 const errorMsg = ref('');
 const questionCollapsed = ref(false);
+
+/* 美化：语言下拉选项 */
+const languageOptions = [
+  { label: 'Java', value: 'java' },
+  { label: 'Python', value: 'python' }
+];
 
 let sseClient: SseClient | null = null;
 
@@ -100,99 +107,87 @@ function goBack() {
 </script>
 
 <template>
-  <div class="flex flex-col h-screen">
+  <!-- 美化：移动端允许页面滚动，桌面端锁定整屏 -->
+  <div class="flex flex-col min-h-screen md:h-screen bg-slate-50">
     <!-- Header -->
-    <header class="bg-white shadow-sm px-6 py-3 flex items-center justify-between shrink-0">
+    <!-- 美化：毛玻璃顶栏，窄屏自动换行 -->
+    <header class="bg-white/80 backdrop-blur border-b border-slate-200/70 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
       <div class="flex items-center gap-4">
-        <button @click="goBack" class="text-slate-500 hover:text-slate-700 text-sm flex items-center gap-1">
+        <button @click="goBack"
+          class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors duration-200">
           ← 返回
         </button>
-        <h2 class="text-lg font-bold text-slate-800">编程题</h2>
-        <select v-model="language" class="px-3 py-1 border border-slate-300 rounded-lg text-sm">
-          <option value="java">Java</option>
-          <option value="python">Python</option>
-        </select>
+        <h2 class="text-lg font-bold text-slate-800 tracking-tight whitespace-nowrap">编程题</h2>
+        <n-select v-model:value="language" :options="languageOptions" size="small" class="w-28" />
       </div>
       <div class="flex gap-3">
-        <button @click="handleRun" :disabled="running"
-          class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm">
+        <n-button type="primary" secondary :loading="running" @click="handleRun">
           {{ running ? '运行中...' : '运行' }}
-        </button>
-        <button @click="handleSubmit" :disabled="submitting"
-          class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors text-sm">
+        </n-button>
+        <n-button type="success" :loading="submitting" @click="handleSubmit">
           {{ submitting ? '提交中...' : '提交' }}
-        </button>
+        </n-button>
       </div>
     </header>
 
     <!-- 题目内容（可折叠） -->
-    <div class="bg-white border-b border-slate-200 shrink-0">
+    <div class="bg-white border-b border-slate-200/70 shrink-0">
       <button @click="questionCollapsed = !questionCollapsed"
-        class="w-full px-6 py-2 flex items-center justify-between text-sm text-slate-500 hover:bg-slate-50 transition-colors">
+        class="w-full px-4 sm:px-6 py-2.5 flex items-center justify-between text-sm text-slate-500 hover:bg-slate-50 transition-colors duration-200">
         <span class="font-semibold text-slate-700">题目</span>
-        <span>{{ questionCollapsed ? '展开' : '收起' }} {{ questionCollapsed ? '▶' : '▼' }}</span>
+        <span class="text-xs">{{ questionCollapsed ? '展开 ▶' : '收起 ▼' }}</span>
       </button>
-      <div v-show="!questionCollapsed" class="px-6 pb-3 max-h-40 overflow-y-auto">
-        <p class="text-sm text-slate-600 whitespace-pre-wrap">{{ question }}</p>
+      <div v-show="!questionCollapsed" class="px-4 sm:px-6 pb-4 max-h-40 overflow-y-auto">
+        <p class="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{{ question }}</p>
       </div>
     </div>
 
-    <div class="flex-1 flex min-h-0">
+    <!-- 美化：响应式双栏——桌面左右布局，窄屏纵向堆叠 -->
+    <div class="flex-1 flex flex-col md:flex-row md:min-h-0">
       <!-- 编辑器区域 -->
-      <div class="flex-1 p-4">
+      <div class="h-[55vh] md:h-auto md:flex-1 p-4 min-h-0">
         <div class="h-full">
           <CodeEditor v-model="code" :language="language" />
         </div>
       </div>
 
       <!-- 结果面板 -->
-      <div class="w-96 border-l border-slate-200 bg-white p-4 overflow-y-auto">
-        <h3 class="font-bold text-slate-800 mb-3">运行结果</h3>
+      <div class="w-full md:w-96 lg:w-[26rem] shrink-0 border-t md:border-t-0 md:border-l border-slate-200/70 bg-white p-4 sm:p-5 md:overflow-y-auto">
+        <h3 class="font-bold text-slate-800 mb-4">运行结果</h3>
 
         <!-- 提交状态提示 -->
-        <p v-if="sseStatus" class="text-sm text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-4">
-          ⏳ {{ sseStatus }}
-        </p>
+        <n-alert v-if="sseStatus" type="info" :bordered="false" class="rounded-xl mb-4">⏳ {{ sseStatus }}</n-alert>
 
         <!-- 代码未达标的重试提示 -->
-        <div v-if="retryHint" class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-          <p class="font-medium mb-1">代码未通过评估，请修改后重新提交：</p>
-          <p>{{ retryHint }}</p>
-        </div>
+        <n-alert v-if="retryHint" type="warning" title="代码未通过评估，请修改后重新提交" :bordered="false" class="rounded-xl mb-4">
+          {{ retryHint }}
+        </n-alert>
 
         <!-- 错误提示 -->
-        <p v-if="errorMsg" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
-          {{ errorMsg }}
-        </p>
+        <n-alert v-if="errorMsg" type="error" :bordered="false" class="rounded-xl mb-4">{{ errorMsg }}</n-alert>
 
         <!-- 输出 -->
-        <div class="mb-4">
-          <h4 class="text-sm font-medium text-slate-600 mb-1">控制台输出</h4>
-          <pre class="bg-slate-900 text-green-400 p-3 rounded-lg text-sm overflow-x-auto min-h-[60px] max-h-[200px] overflow-y-auto">{{ output || '点击"运行"查看输出' }}</pre>
+        <div class="mb-5">
+          <h4 class="text-sm font-medium text-slate-600 mb-2">控制台输出</h4>
+          <pre class="bg-slate-900 text-green-400 p-3 rounded-xl text-sm overflow-x-auto min-h-[60px] max-h-[200px] overflow-y-auto leading-relaxed">{{ output || '点击"运行"查看输出' }}</pre>
         </div>
 
         <!-- 通过率 -->
-        <div v-if="passRate !== null" class="mb-4">
+        <div v-if="passRate !== null" class="mb-5">
           <h4 class="text-sm font-medium text-slate-600 mb-2">测试通过率</h4>
-          <div class="flex items-center gap-2">
-            <div class="flex-1 bg-slate-200 rounded-full h-2">
-              <div class="h-2 rounded-full transition-all"
-                :class="passRate >= 60 ? 'bg-green-500' : 'bg-red-500'"
-                :style="{ width: Math.min(passRate, 100) + '%' }"></div>
-            </div>
-            <span class="text-sm font-bold" :class="passRate >= 60 ? 'text-green-600' : 'text-red-600'">
-              {{ passRate }}%
-            </span>
-          </div>
+          <!-- 美化：通过率升级为 n-progress 组件 -->
+          <n-progress type="line" :percentage="Math.min(passRate, 100)"
+            :status="passRate >= 60 ? 'success' : 'error'" :height="10" border-radius="5px" />
         </div>
 
         <!-- 测试结果 -->
         <div v-if="testResults.length > 0">
           <h4 class="text-sm font-medium text-slate-600 mb-2">测试用例</h4>
           <div class="space-y-2">
+            <!-- 美化：用例卡片统一描边 + 圆角 -->
             <div v-for="(tr, i) in testResults" :key="i"
-              class="flex items-start gap-2 p-2 rounded-lg"
-              :class="tr.passed ? 'bg-green-50' : 'bg-red-50'">
+              class="flex items-start gap-2 p-3 rounded-xl border"
+              :class="tr.passed ? 'bg-green-50/70 border-green-100' : 'bg-red-50/70 border-red-100'">
               <span class="text-lg leading-none mt-0.5" :class="tr.passed ? 'text-green-600' : 'text-red-600'">
                 {{ tr.passed ? '✓' : '✗' }}
               </span>
@@ -202,7 +197,7 @@ function goBack() {
                   <span v-if="tr.source === 'dynamic'"
                     class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-600 align-middle">动态</span>
                 </p>
-                <p class="text-xs text-slate-500 break-words">{{ tr.detail }}</p>
+                <p class="text-xs text-slate-500 break-words mt-0.5">{{ tr.detail }}</p>
               </div>
             </div>
           </div>
