@@ -40,16 +40,19 @@ public class CodingAgent {
         if (askedTopics != null && !askedTopics.isEmpty()) {
             sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
         }
-        sb.append("请出一道算法或编码题，包含题目描述、输入输出示例、以及考察要点。候选人需要口头描述解题思路。直接输出题目内容。");
+        sb.append("请出一道纯算法题（LeetCode 风格），包含完整题目描述、输入输出示例、以及考察要点。\n");
+        sb.append("要求：候选人需写出完整可运行代码，不得仅口头描述。\n");
+        sb.append("禁止出系统设计、架构设计、分布式系统等非算法类题目。\n");
+        sb.append("直接输出题目内容，不需要额外说明。");
         return sb.toString();
     }
 
     private String fallbackQuestion(String topic, String difficulty) {
         Map<String, String> bank = Map.ofEntries(
-            Map.entry("算法", "给定一个整数数组 nums 和一个整数目标值 target，请找出数组中和为目标值的两个数，并返回它们的下标。请说明你的解题思路和时间复杂度分析。"),
-            Map.entry("数据结构", "请实现一个最小栈（MinStack），支持 push、pop、top 和 getMin 操作，且所有操作的时间复杂度为 O(1)。请说明你的设计思路。"),
-            Map.entry("编码", "请实现一个函数，判断一个字符串是否是有效的括号组合（包含小括号、中括号、大括号）。请说明你的解题思路。"),
-            Map.entry("综合编码", "请设计一个算法，找到两个有序数组的中位数。要求时间复杂度 O(log(m+n))，请说明你的解题思路。")
+            Map.entry("算法", "给定一个整数数组 nums 和一个整数目标值 target，请找出数组中和为目标值的两个数，并返回它们的下标。请写出完整可运行的代码，并说明时间复杂度。"),
+            Map.entry("数据结构", "请实现一个最小栈（MinStack），支持 push、pop、top 和 getMin 操作，且所有操作的时间复杂度为 O(1)。请写出完整可运行的代码。"),
+            Map.entry("编码", "请实现一个函数，判断一个字符串是否是有效的括号组合（包含小括号、中括号、大括号）。请写出完整可运行的代码。"),
+            Map.entry("综合编码", "请实现一个算法，找到两个有序数组的中位数。要求时间复杂度 O(log(m+n))，请写出完整可运行的代码。")
         );
         return bank.getOrDefault(topic, bank.get("算法"));
     }

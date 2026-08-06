@@ -31,7 +31,7 @@ public class TechnicalAgent {
 
     private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics) {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一位资深技术面试官，负责考察候选人的技术基础。\n\n");
+        sb.append("你是一位资深技术面试官，负责考察候选人的技术基础和系统设计能力。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
         sb.append("难度级别：").append(difficulty).append("\n\n");
         if (resumeText != null && !resumeText.isBlank()) {
@@ -40,7 +40,8 @@ public class TechnicalAgent {
         if (askedTopics != null && !askedTopics.isEmpty()) {
             sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
         }
-        sb.append("请出一道技术面试题，包含题目描述和期望的考察要点。直接输出题目内容，不需要额外说明。");
+        sb.append("请出一道技术原理或系统设计题，候选人需口头阐述思路和方案，不要求写代码。\n");
+        sb.append("直接输出题目内容，不需要额外说明。");
         return sb.toString();
     }
 
