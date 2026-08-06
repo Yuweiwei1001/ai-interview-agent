@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { getReport, type InterviewReport } from '../api/interview';
 
 const route = useRoute();
+const router = useRouter();
 const report = ref<InterviewReport | null>(null);
 const loading = ref(true);
 const error = ref('');
@@ -34,7 +35,12 @@ function scoreBg(score: number): string {
 
 <template>
   <div class="p-6 max-w-4xl mx-auto">
-    <h2 class="text-2xl font-bold text-slate-800 mb-6">面试报告</h2>
+    <div class="flex items-center gap-4 mb-6">
+      <button @click="router.push('/home')" class="text-slate-500 hover:text-slate-700 text-sm flex items-center gap-1">
+        ← 返回
+      </button>
+      <h2 class="text-2xl font-bold text-slate-800">面试报告</h2>
+    </div>
 
     <div v-if="loading" class="text-center py-12 text-slate-500">加载中...</div>
     <p v-else-if="error" class="text-red-500 text-center">{{ error }}</p>

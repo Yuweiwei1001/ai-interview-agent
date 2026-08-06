@@ -85,10 +85,21 @@ function handleSseEvent(event: SseEvent) {
 function startInterview() {
   const existingSessionId = route.query.sessionId as string | undefined;
 
+  // 如果是从编码页返回且携带了题目数据，先展示
+  const incomingQuestion = route.query.question as string | undefined;
+
   // 已有会话（编码环节返回/刷新页面）：重连 SSE 流而非新建会话
   if (existingSessionId) {
     sessionId.value = existingSessionId;
     connected.value = true;
+    // 如果有传入的题目，作为第一条消息
+    if (incomingQuestion) {
+      messages.value.push({
+        role: 'assistant',
+        content: incomingQuestion,
+        timestamp: new Date().toLocaleTimeString()
+      });
+    }
     loadHistory(existingSessionId);
     sseClient = new SseClient();
     sseClient.connectGet(`/api/interviews/${existingSessionId}/stream`, handleSseEvent, () => {
@@ -164,6 +175,10 @@ async function submitAnswer() {
   }
 }
 
+function goBack() {
+  router.push('/home');
+}
+
 function endInterview() {
   if (!sessionId.value) return;
   fetch(`/api/interviews/${sessionId.value}/end`, {
@@ -178,7 +193,12 @@ function endInterview() {
   <div class="flex flex-col h-[calc(100vh-64px)]">
     <!-- Header -->
     <header class="bg-white shadow-sm px-6 py-3 flex items-center justify-between shrink-0">
-      <h2 class="text-lg font-bold text-slate-800">面试进行中</h2>
+      <div class="flex items-center gap-4">
+        <button @click="goBack" class="text-slate-500 hover:text-slate-700 text-sm flex items-center gap-1">
+          ← 返回
+        </button>
+        <h2 class="text-lg font-bold text-slate-800">面试进行中</h2>
+      </div>
       <div class="flex items-center gap-3">
         <span v-if="connected" class="text-sm text-green-600">● 已连接</span>
         <span v-if="thinking" class="text-sm text-yellow-600">● 思考中...</span>

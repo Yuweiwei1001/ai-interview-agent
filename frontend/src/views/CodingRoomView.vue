@@ -18,21 +18,25 @@ const running = ref(false);
 const submitting = ref(false);
 const question = ref((route.query.question as string) || '编程题');
 const sseStatus = ref('');
+const questionCollapsed = ref(false);
 
 let sseClient: SseClient | null = null;
 
 onMounted(() => {
   if (sessionId) {
-    // 监听面试流：恢复后可能收到新题目或完成事件
     sseClient = new SseClient();
     sseClient.connectGet(`/api/interviews/${sessionId}/stream`, (event) => {
       switch (event.event) {
         case 'WAITING_CODE':
           question.value = event.data;
+          questionCollapsed.value = false;
           break;
         case 'QUESTION':
-          // 回到文字面试环节（携带 sessionId，InterviewRoom 将重连而非新建会话）
-          router.push({ name: 'InterviewRoom', query: { sessionId, resumeId: '', jdId: '', direction: '', persona: 'neutral', durationMinutes: 30 } });
+          // 回到文字面试环节，携带题目数据防止丢失
+          router.push({ name: 'InterviewRoom', query: { sessionId, question: event.data } });
+          break;
+        case 'FOLLOW_UP':
+          // 评估反馈在编码环节不展示
           break;
         case 'COMPLETE':
         case 'REPORT_READY':
@@ -77,14 +81,21 @@ async function handleSubmit() {
     submitting.value = false;
   }
 }
+
+function goBack() {
+  router.push('/home');
+}
 </script>
 
 <template>
-  <div class="flex flex-col h-[calc(100vh-64px)]">
+  <div class="flex flex-col h-screen">
     <!-- Header -->
     <header class="bg-white shadow-sm px-6 py-3 flex items-center justify-between shrink-0">
-      <div class="flex items-center gap-4 min-w-0">
-        <h2 class="text-lg font-bold text-slate-800 shrink-0">编程题</h2>
+      <div class="flex items-center gap-4">
+        <button @click="goBack" class="text-slate-500 hover:text-slate-700 text-sm flex items-center gap-1">
+          ← 返回
+        </button>
+        <h2 class="text-lg font-bold text-slate-800">编程题</h2>
         <select v-model="language" class="px-3 py-1 border border-slate-300 rounded-lg text-sm">
           <option value="java">Java</option>
           <option value="python">Python</option>
@@ -102,10 +113,16 @@ async function handleSubmit() {
       </div>
     </header>
 
-    <!-- 题目内容 -->
-    <div class="bg-white border-b border-slate-200 px-6 py-3 shrink-0">
-      <h3 class="text-sm font-semibold text-slate-700 mb-1">题目</h3>
-      <p class="text-sm text-slate-600 whitespace-pre-wrap">{{ question }}</p>
+    <!-- 题目内容（可折叠） -->
+    <div class="bg-white border-b border-slate-200 shrink-0">
+      <button @click="questionCollapsed = !questionCollapsed"
+        class="w-full px-6 py-2 flex items-center justify-between text-sm text-slate-500 hover:bg-slate-50 transition-colors">
+        <span class="font-semibold text-slate-700">题目</span>
+        <span>{{ questionCollapsed ? '展开' : '收起' }} {{ questionCollapsed ? '▶' : '▼' }}</span>
+      </button>
+      <div v-show="!questionCollapsed" class="px-6 pb-3 max-h-40 overflow-y-auto">
+        <p class="text-sm text-slate-600 whitespace-pre-wrap">{{ question }}</p>
+      </div>
     </div>
 
     <div class="flex-1 flex min-h-0">
@@ -128,7 +145,7 @@ async function handleSubmit() {
         <!-- 输出 -->
         <div class="mb-4">
           <h4 class="text-sm font-medium text-slate-600 mb-1">控制台输出</h4>
-          <pre class="bg-slate-900 text-green-400 p-3 rounded-lg text-sm overflow-x-auto min-h-[60px]">{{ output || '点击"运行"查看输出' }}</pre>
+          <pre class="bg-slate-900 text-green-400 p-3 rounded-lg text-sm overflow-x-auto min-h-[60px] max-h-[200px] overflow-y-auto">{{ output || '点击"运行"查看输出' }}</pre>
         </div>
 
         <!-- 通过率 -->
