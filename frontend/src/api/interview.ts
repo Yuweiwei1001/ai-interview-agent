@@ -2,7 +2,7 @@ import request from '../utils/request';
 
 export interface InterviewPlan {
   overallStrategy: string;
-  agentAssignments: Record<string, { topics: string; difficulty: string; estimatedRounds: number }>;
+  agentAssignments: Record<string, { topics: string[]; difficulty: string; estimatedRounds: number }>;
   weakPointPriority: string[];
   estimatedTotalRounds: number;
 }

@@ -191,25 +191,16 @@ public class InterviewGraphBuilder {
             return Map.of(STATE_KEY, interviewState);
         }));
 
-        // codingRetryWait 节点：代码不达标时按行为策略再次挂起，等待修改后的代码
-        // 节点实际执行时说明代码已提交，重置 waitingForCode 标志和状态
+        // codingRetryWait 节点：代码不达标时再次挂起，等待修改后的代码。
+        // 挂起决策（waitingForCode/hint）已由 EvaluateNode 写入状态；
+        // 节点实际执行时说明代码已重新提交，仅重置标志并累计重试次数。
         graph.addNode("codingRetryWait", node_async((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             interviewState.setWaitingForCode(false);
             interviewState.setStatus("in_progress");
             interviewState.setCodingRetryCount(interviewState.getCodingRetryCount() + 1);
-
-            // 按人格生成提示（温和型给提示；压力型/中性型给默认提示）
-            BehaviorPolicy policy = policyFactory.getPolicy(interviewState.getPersona());
-            String hint = policy.generateHint(interviewState.getCurrentQuestion(),
-                    interviewState.getCurrentAnswer(), interviewState.getCodingScore());
-            if (hint == null || hint.isBlank()) {
-                hint = "当前代码未通过评估，请检查逻辑与边界情况后重新提交。";
-            }
-            interviewState.setCodingHint(hint);
-
-            log.info("CodingRetryWait: 已挂起等待修改后代码, sessionId={}, retryCount={}, hint={}",
-                    interviewState.getSessionId(), interviewState.getCodingRetryCount(), hint);
+            log.info("CodingRetryWait: 修改后代码已提交，继续评估, sessionId={}, retryCount={}",
+                    interviewState.getSessionId(), interviewState.getCodingRetryCount());
             return Map.of(STATE_KEY, interviewState);
         }));
 
@@ -244,12 +235,12 @@ public class InterviewGraphBuilder {
         graph.addConditionalEdges("evaluate",
                 edge_async(state -> {
                     InterviewState interviewState = toInterviewState(state);
-                    // Coding 环节：代码评估完成后按行为策略分流
+                    // Coding 环节：waitingForCode 由 EvaluateNode 统一决策（唯一事实来源）
                     if ("coding".equals(interviewState.getCurrentAgent())) {
                         if (shouldEnd(interviewState)) {
                             return "end";
                         }
-                        return decideCodingNext(interviewState);
+                        return interviewState.isWaitingForCode() ? "codingRetryWait" : "coordinator";
                     }
                     if (shouldEnd(interviewState)) {
                         return "end";
@@ -277,52 +268,6 @@ public class InterviewGraphBuilder {
                 .recursionLimit(50)
                 .interruptBefore("codingWait", "codingRetryWait")
                 .build());
-    }
-
-    /**
-     * Coding 环节代码评估完成后的行为策略分流：
-     * <ul>
-     *   <li>达标（score ≥ 人格对应阈值）：进入 coordinator 继续下一轮</li>
-     *   <li>压力型（pressure）：代码不达标直接切题，不给予重试机会</li>
-     *   <li>温和型（gentle）：给提示，挂起允许重试修改</li>
-     *   <li>中性型（neutral）：给一次修改机会，超过一次直接切题</li>
-     * </ul>
-     */
-    private String decideCodingNext(InterviewState state) {
-        int score = state.getCodingScore();
-        BehaviorPolicy policy = policyFactory.getPolicy(state.getPersona());
-
-        // 根据严格度设置不同的通过阈值
-        int passThreshold = switch (policy.evaluationStrictness()) {
-            case STRICT -> 80;
-            case STANDARD -> 60;
-            case LENIENT -> 40;
-        };
-
-        if (score >= passThreshold) {
-            log.info("Coding 评估达标: score={}, threshold={}, 进入下一轮, sessionId={}",
-                    score, passThreshold, state.getSessionId());
-            return "coordinator";
-        }
-
-        // 不达标：按人格分流
-        String persona = state.getPersona() == null ? "neutral" : state.getPersona().toLowerCase();
-        switch (persona) {
-            case "pressure":
-                log.info("压力型人格: 代码不达标直接切题, score={}, sessionId={}", score, state.getSessionId());
-                return "coordinator";
-            case "gentle":
-                log.info("温和型人格: 给提示允许重试, score={}, sessionId={}", score, state.getSessionId());
-                return "codingRetryWait";
-            default:
-                if (state.getCodingRetryCount() >= 1) {
-                    log.info("中性型人格: 修改机会已用完, 直接切题, score={}, sessionId={}",
-                            score, state.getSessionId());
-                    return "coordinator";
-                }
-                log.info("中性型人格: 一次修改机会, score={}, sessionId={}", score, state.getSessionId());
-                return "codingRetryWait";
-        }
     }
 
     /**
@@ -369,7 +314,12 @@ public class InterviewGraphBuilder {
                         return score instanceof Number && ((Number) score).intValue() >= passThreshold;
                     });
             if (allPassed) {
-                return true;
+                // 连续满分可提前结束，但必须已出过编程题（否则编程环节会被跳过）
+                boolean hasCoding = last3.stream().anyMatch(r -> "coding".equals(r.getAgentName()))
+                        || state.getRounds().stream().anyMatch(r -> "coding".equals(r.getAgentName()));
+                if (hasCoding) {
+                    return true;
+                }
             }
         }
         return false;

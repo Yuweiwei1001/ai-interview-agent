@@ -18,12 +18,26 @@ public class CodingAgent {
         this.chatClient = builder.build();
     }
 
+    /** 系统设计类关键词：编程题必须是纯算法题，命中这些词视为出题偏移 */
+    private static final java.util.regex.Pattern DESIGN_KEYWORDS = java.util.regex.Pattern.compile(
+            "系统设计|架构设计|分布式|微服务|Redis|Kafka|RabbitMQ|RocketMQ|消息队列|限流|熔断|负载均衡|短链|秒杀|缓存设计|数据库设计");
+
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics) {
         return LlmCallWrapper.callWithRetry(() -> {
             String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics);
             String result = chatClient.prompt().user(prompt).call().content();
             if (result == null || result.isBlank()) {
                 throw new RuntimeException("Agent 出题返回空");
+            }
+            // 偏移护栏：LLM 出了系统设计题 → 加强约束重试一次，仍偏移则用算法题库兜底
+            if (DESIGN_KEYWORDS.matcher(result).find()) {
+                log.warn("编程题偏移为系统设计题，加强约束重试: topic={}", topic);
+                String retryPrompt = prompt + "\n\n【警告】上次输出偏系统设计，严重错误。必须出一道数据结构与算法题（LeetCode 风格），禁止提及任何中间件、框架、系统架构。";
+                result = chatClient.prompt().user(retryPrompt).call().content();
+                if (result == null || result.isBlank() || DESIGN_KEYWORDS.matcher(result).find()) {
+                    log.warn("重试仍偏移，使用算法题库兜底: topic={}", topic);
+                    return fallbackQuestion(topic, difficulty);
+                }
             }
             return result;
         }, () -> fallbackQuestion(topic, difficulty));

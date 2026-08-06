@@ -18,6 +18,8 @@ const running = ref(false);
 const submitting = ref(false);
 const question = ref((route.query.question as string) || '编程题');
 const sseStatus = ref('');
+const retryHint = ref('');
+const errorMsg = ref('');
 const questionCollapsed = ref(false);
 
 let sseClient: SseClient | null = null;
@@ -28,8 +30,9 @@ onMounted(() => {
     sseClient.connectGet(`/api/interviews/${sessionId}/stream`, (event) => {
       switch (event.event) {
         case 'WAITING_CODE':
-          question.value = event.data;
-          questionCollapsed.value = false;
+          // 编码页收到的 WAITING_CODE 只会是「代码未达标，挂起等待重试」的提示
+          retryHint.value = event.data;
+          sseStatus.value = '';
           break;
         case 'QUESTION':
           // 回到文字面试环节，携带题目数据防止丢失
@@ -42,7 +45,14 @@ onMounted(() => {
         case 'REPORT_READY':
           router.push(`/report/${sessionId}`);
           break;
+        case 'ERROR':
+          errorMsg.value = event.data || '面试流程出错';
+          sseStatus.value = '';
+          break;
       }
+    }, () => {
+      errorMsg.value = 'SSE 连接失败，请返回重进';
+      sseStatus.value = '';
     });
   }
 });
@@ -71,6 +81,8 @@ async function handleSubmit() {
   if (!sessionId) { output.value = '缺少会话 ID'; return; }
   submitting.value = true;
   output.value = '';
+  retryHint.value = '';
+  errorMsg.value = '';
   sseStatus.value = '代码已提交，评估中，请稍候...';
   try {
     await submitCode(sessionId, code.value, language.value, question.value);
@@ -140,6 +152,17 @@ function goBack() {
         <!-- 提交状态提示 -->
         <p v-if="sseStatus" class="text-sm text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-4">
           ⏳ {{ sseStatus }}
+        </p>
+
+        <!-- 代码未达标的重试提示 -->
+        <div v-if="retryHint" class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+          <p class="font-medium mb-1">代码未通过评估，请修改后重新提交：</p>
+          <p>{{ retryHint }}</p>
+        </div>
+
+        <!-- 错误提示 -->
+        <p v-if="errorMsg" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
+          {{ errorMsg }}
         </p>
 
         <!-- 输出 -->

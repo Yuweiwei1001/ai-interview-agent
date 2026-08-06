@@ -52,6 +52,27 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
         String topic = decision.get("topic");
         String difficulty = decision.get("difficulty");
 
+        // 编程题确定性护栏（不信任 LLM 决策）：
+        // 1. 全场最多 1 道编程题；2. 至少先进行 2 轮非编程题（编程题放在面试中后段）；
+        // 3. 编程题主题强制从算法池选取，避免“Redis 限流器”这类系统设计题进入代码编辑器。
+        long codingCount = state.getRounds().stream()
+                .filter(r -> "coding".equals(r.getAgentName()))
+                .count();
+        if ("coding".equals(nextAgent)) {
+            if (codingCount >= 1 || state.getCurrentRound() < CODING_MIN_ROUND) {
+                log.info("编程题护栏：改派非编程 Agent, codingCount={}, round={}", codingCount, state.getCurrentRound());
+                nextAgent = pickNonCodingAgent(state);
+                topic = "technical".equals(nextAgent) ? "计算机基础" : "项目经验";
+            } else {
+                topic = CODING_TOPICS.get(state.getCurrentRound() % CODING_TOPICS.size());
+            }
+        } else if (codingCount == 0 && state.getCurrentRound() >= CODING_MIN_ROUND) {
+            // 进入中后段还没出编程题 → 强制安排（防止 LLM 一直不出 coding，或提前结束跳过编程环节）
+            log.info("编程题护栏：round={} 尚未出编程题，强制安排 coding", state.getCurrentRound());
+            nextAgent = "coding";
+            topic = CODING_TOPICS.get(state.getCurrentRound() % CODING_TOPICS.size());
+        }
+
         state.setCurrentAgent(nextAgent);
 
         // 对应 Agent 出题（含去重检查，最多重试3次）
@@ -76,6 +97,20 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
         }
 
         return state;
+    }
+
+    /** 编程题最早出现轮次（0 基：第 3 题起才允许编程题） */
+    private static final int CODING_MIN_ROUND = 2;
+
+    /** 编程题算法主题池（纯数据结构与算法，杜绝系统设计题混入） */
+    private static final List<String> CODING_TOPICS = List.of(
+            "数组与字符串", "链表", "哈希表", "栈与队列", "二叉树", "双指针", "排序与二分查找", "动态规划");
+
+    /** 改派 technical/project 中已出轮次较少者，保证覆盖均衡 */
+    private String pickNonCodingAgent(InterviewState state) {
+        long techCount = state.getRounds().stream().filter(r -> "technical".equals(r.getAgentName())).count();
+        long projCount = state.getRounds().stream().filter(r -> "project".equals(r.getAgentName())).count();
+        return techCount <= projCount ? "technical" : "project";
     }
 
     private String generateQuestion(String nextAgent, String topic, String difficulty, String resumeText, List<String> askedTopics) {

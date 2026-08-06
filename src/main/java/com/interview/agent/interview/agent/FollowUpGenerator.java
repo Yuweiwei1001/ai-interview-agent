@@ -17,9 +17,14 @@ public class FollowUpGenerator {
     }
 
     /**
-     * 生成反馈（高分点评，低分追问）
+     * 生成追问（仅回答不达标时）。
+     * 像真实面试官一样：答得好不点评不追问，直接进入下一题；答得不好才追问引导。
+     * 返回空串表示无需追问。
      */
     public String generateFollowUp(String originalQuestion, String answer, java.util.Map<String, Object> evaluation, BehaviorPolicy policy) {
+        Object scoreObj = evaluation.get("score");
+        int score = scoreObj instanceof Number ? ((Number) scoreObj).intValue() : 50;
+
         // 根据追问策略判断是否需要追问
         switch (policy.followUpStrategy()) {
             case NEVER:
@@ -27,7 +32,11 @@ public class FollowUpGenerator {
             case ALWAYS:
                 break;
             case ON_FAILURE:
-                // 默认行为：始终生成反馈（高分点评，低分追问）
+            default:
+                // 答得好：不反馈不追问，像正常面试官一样直接进入下一题
+                if (score >= 60) {
+                    return "";
+                }
                 break;
         }
 
@@ -44,15 +53,8 @@ public class FollowUpGenerator {
         sb.append("候选人回答：").append(answer).append("\n\n");
         sb.append("评估结果：").append(evaluation).append("\n\n");
 
-        Object scoreObj = evaluation.get("score");
-        int score = scoreObj instanceof Number ? ((Number) scoreObj).intValue() : 50;
-        if (score >= 60) {
-            sb.append("候选人的回答基本正确，请给出积极的肯定和简短建议（50字以内）。\n");
-        } else {
-            sb.append("候选人的回答不够完善，请给出一个提示性的追问，引导候选人补充回答。\n");
-        }
-
-        sb.append("要求：反馈要有针对性，避免重复已有内容，控制在100字以内。");
+        sb.append("候选人的回答不够完善，请以面试官的口吻给出一个针对性的追问，引导候选人补充关键细节。\n");
+        sb.append("要求：只输出追问问题本身，不要点评、不要重复已有内容，控制在80字以内。");
         return sb.toString();
     }
 
@@ -61,6 +63,6 @@ public class FollowUpGenerator {
         if (score instanceof Number && ((Number) score).intValue() < 60) {
             return "能否更详细地说明一下你的思路？可以从实际应用场景出发，结合具体例子。";
         }
-        return "还有没有其他方面想要补充的？";
+        return "";
     }
 }

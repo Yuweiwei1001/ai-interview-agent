@@ -122,7 +122,7 @@ function startInterview() {
         <div v-for="(ass, name) in plan.agentAssignments" :key="name"
           class="border border-slate-200 rounded-lg p-3">
           <h4 class="font-medium text-slate-800 capitalize">{{ name }}</h4>
-          <p class="text-sm text-slate-600">主题：{{ ass.topics }}</p>
+          <p class="text-sm text-slate-600">主题：{{ Array.isArray(ass.topics) ? ass.topics.join('、') : ass.topics }}</p>
           <p class="text-sm text-slate-600">难度：{{ ass.difficulty }} | 预计轮次：{{ ass.estimatedRounds }}</p>
         </div>
       </div>

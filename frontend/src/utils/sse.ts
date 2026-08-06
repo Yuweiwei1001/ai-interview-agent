@@ -49,16 +49,24 @@ export class SseClient {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      let currentEvent = '';
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          onEvent({ event: currentEvent, data });
+      // 统一换行符，按空行（SSE 事件分隔符）切分完整事件
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      const chunks = buffer.split('\n\n');
+      buffer = chunks.pop() || '';
+      for (const chunk of chunks) {
+        if (!chunk.trim()) continue;
+        let eventName = '';
+        const dataLines: string[] = [];
+        for (const line of chunk.split('\n')) {
+          if (line.startsWith('event:')) {
+            eventName = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataLines.push(line.slice(5).trim());
+          }
+        }
+        // 一个事件的所有 data 行用换行拼接成一条完整消息
+        if (dataLines.length > 0) {
+          onEvent({ event: eventName, data: dataLines.join('\n') });
         }
       }
     }

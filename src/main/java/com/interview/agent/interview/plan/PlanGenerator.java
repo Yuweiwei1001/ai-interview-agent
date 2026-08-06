@@ -52,40 +52,49 @@ public class PlanGenerator {
         }
         sb.append("请输出一个JSON格式的面试计划，包含以下字段：\n");
         sb.append("- overallStrategy: 整体面试策略描述\n");
-        sb.append("- agentAssignments: 各Agent的分配，key为agent名称(technical/project/coding)，value包含topics(考察主题)、difficulty(难度)、estimatedRounds(预计轮次)\n");
+        sb.append("- agentAssignments: 各Agent的分配，key为agent名称(technical/project/coding)，value包含topics(考察主题，字符串数组)、difficulty(难度)、estimatedRounds(预计轮次)\n");
         sb.append("- weakPointPriority: 薄弱点优先考察列表\n");
         sb.append("- estimatedTotalRounds: 预计总轮次数\n");
+        sb.append("硬性规则：\n");
+        sb.append("1. coding 的 estimatedRounds 必须为 1（全场仅 1 道上机编程题）。\n");
+        sb.append("2. estimatedTotalRounds 按面试时长估算，约每 5 分钟 1 题，取值 5-8 之间。\n");
+        sb.append("3. technical 与 project 均分剩余轮次，coding 的 topics 仅限数据结构与算法。\n");
         return sb.toString();
     }
 
     private InterviewPlan fallbackPlan(String direction, int durationMinutes) {
-        int roundsPerAgent = Math.max(3, durationMinutes / 10);
+        // 兜底结构：编程题固定 1 道，总轮次按时长估算（约每 5 分钟 1 题，限 5-8），技术与项目均分剩余
+        int totalRounds = Math.min(8, Math.max(5, durationMinutes / 5));
+        int remaining = totalRounds - 1;
+        int techRounds = (remaining + 1) / 2;
+        int projRounds = remaining / 2;
+
         InterviewPlan plan = new InterviewPlan();
-        plan.setOverallStrategy("默认面试计划：技术 + 项目 + 编码各" + roundsPerAgent + "轮");
+        plan.setOverallStrategy("默认面试计划：技术 " + techRounds + " 轮 + 项目 " + projRounds + " 轮 + 编码 1 轮");
         plan.setWeakPointPriority(List.of("基础知识", "项目经验", "编码能力"));
 
         Map<String, InterviewPlan.AgentAssignment> assignments = new HashMap<>();
-        
+
         InterviewPlan.AgentAssignment technical = new InterviewPlan.AgentAssignment();
-        technical.setTopics("计算机基础、数据结构、算法、程序设计语言");
+        technical.setTopics(List.of("计算机基础", "数据结构", "程序设计语言"));
         technical.setDifficulty("中等");
-        technical.setEstimatedRounds(roundsPerAgent);
+        technical.setEstimatedRounds(techRounds);
         assignments.put("technical", technical);
 
         InterviewPlan.AgentAssignment project = new InterviewPlan.AgentAssignment();
-        project.setTopics("项目经验、系统设计、架构决策、技术选型");
+        project.setTopics(List.of("项目经验", "系统设计", "技术选型"));
         project.setDifficulty("中等");
-        project.setEstimatedRounds(roundsPerAgent);
+        project.setEstimatedRounds(projRounds);
         assignments.put("project", project);
 
         InterviewPlan.AgentAssignment coding = new InterviewPlan.AgentAssignment();
-        coding.setTopics("算法题、编码实践、代码质量");
+        coding.setTopics(List.of("数据结构与算法"));
         coding.setDifficulty("中等");
-        coding.setEstimatedRounds(roundsPerAgent);
+        coding.setEstimatedRounds(1);
         assignments.put("coding", coding);
 
         plan.setAgentAssignments(assignments);
-        plan.setEstimatedTotalRounds(roundsPerAgent * 3);
+        plan.setEstimatedTotalRounds(totalRounds);
         return plan;
     }
 }

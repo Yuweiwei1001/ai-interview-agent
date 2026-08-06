@@ -19,12 +19,13 @@ public class InterviewPlan {
     public void setEstimatedTotalRounds(int estimatedTotalRounds) { this.estimatedTotalRounds = estimatedTotalRounds; }
 
     public static class AgentAssignment {
-        private String topics;
+        // LLM 结构化输出恒返回字符串数组，必须用 List 接收（String 会反序列化失败走兜底计划）
+        private List<String> topics;
         private String difficulty;
         private int estimatedRounds;
 
-        public String getTopics() { return topics; }
-        public void setTopics(String topics) { this.topics = topics; }
+        public List<String> getTopics() { return topics; }
+        public void setTopics(List<String> topics) { this.topics = topics; }
         public String getDifficulty() { return difficulty; }
         public void setDifficulty(String difficulty) { this.difficulty = difficulty; }
         public int getEstimatedRounds() { return estimatedRounds; }

@@ -76,7 +76,10 @@ public class CoordinatorAgent {
         sb.append("- coding：编码能力（算法实现、代码质量、调试能力）\n\n");
 
         sb.append("请输出JSON格式决策，包含字段：nextAgent(选择上述Agent名称), reason(选择原因), topic(具体考察主题), difficulty(难度: 简单/中等/困难)\n");
-        sb.append("规则：避免连续超过3次同一Agent，优先考察未涉及的Agent。\n");
+        sb.append("规则：\n");
+        sb.append("1. 避免连续超过3次同一Agent，优先考察未涉及的Agent。\n");
+        sb.append("2. coding 全场最多安排一次，且只安排在面试中后段（前2题不要安排 coding）。\n");
+        sb.append("3. coding 仅用于纯算法题（数组/链表/哈希/树/动态规划等）；系统设计、架构、Redis/中间件应用类问题归 project 或 technical。\n");
         return sb.toString();
     }
 
