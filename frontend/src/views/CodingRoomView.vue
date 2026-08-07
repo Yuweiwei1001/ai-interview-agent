@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { NSelect, NButton, NAlert, NProgress } from 'naive-ui';
 import CodeEditor from '../components/CodeEditor.vue';
 import { runCode, submitCode, type TestRunResult } from '../api/coding';
+import { getSession } from '../api/interview';
 import { SseClient } from '../utils/sse';
 
 const route = useRoute();
@@ -31,6 +32,43 @@ const languageOptions = [
 
 let sseClient: SseClient | null = null;
 
+/* 提交后轮询兜底：SSE 事件若被中间层静默吞掉（曾致提交后永久卡在“评估中”），
+   通过周期查询会话状态保证页面必然流转 */
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollCount = 0;
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function pollSessionStatus() {
+  pollCount++;
+  try {
+    const res = await getSession(sessionId);
+    const status = res.data.data?.status;
+    if (status === 'completed') {
+      stopPolling();
+      router.push(`/report/${sessionId}`);
+    } else if (status === 'waiting_code' && sseStatus.value) {
+      // 评估未通过的提示事件未到达：退出“评估中”，允许修改后重新提交
+      sseStatus.value = '';
+      retryHint.value = retryHint.value || '代码未通过评估，请修改后重新提交';
+      stopPolling();
+    } else if (status === 'in_progress' && sseStatus.value && pollCount >= 10) {
+      // 约 40 秒仍在评估：提示可重进（进度由 checkpoint 保存，不会丢失）
+      errorMsg.value = '等待响应时间较长，可能是连接中断。可返回首页重新进入面试，进度不会丢失。';
+    }
+  } catch {
+    /* 单次轮询失败静默，等待下一轮 */
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollCount = 0;
+  pollTimer = setInterval(pollSessionStatus, 4000);
+}
+
 onMounted(() => {
   if (sessionId) {
     sseClient = new SseClient();
@@ -38,6 +76,7 @@ onMounted(() => {
       switch (event.event) {
         case 'WAITING_CODE':
           // 编码页收到的 WAITING_CODE 只会是「代码未达标，挂起等待重试」的提示
+          stopPolling();
           retryHint.value = event.data;
           sseStatus.value = '';
           break;
@@ -64,7 +103,7 @@ onMounted(() => {
   }
 });
 
-onUnmounted(() => sseClient?.disconnect());
+onUnmounted(() => { sseClient?.disconnect(); stopPolling(); });
 
 async function handleRun() {
   running.value = true;
@@ -93,6 +132,7 @@ async function handleSubmit() {
   sseStatus.value = '代码已提交，评估中，请稍候...';
   try {
     await submitCode(sessionId, code.value, language.value, question.value);
+    startPolling();
   } catch (e: any) {
     output.value = e.response?.data?.msg || '提交失败';
     sseStatus.value = '';

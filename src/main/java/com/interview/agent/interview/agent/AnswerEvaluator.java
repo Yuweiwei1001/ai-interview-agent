@@ -1,0 +1,72 @@
+package com.interview.agent.interview.agent;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.interview.agent.common.ai.LlmCallWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.stereotype.Component;
+
+/**
+ * 文本题回答评估器：由 LLM 对回答质量进行真实评分。
+ * 替代历史的长度启发式（answer.length()*2），避免分数失真导致面试被提前终结。
+ */
+@Component
+public class AnswerEvaluator {
+    private static final Logger log = LoggerFactory.getLogger(AnswerEvaluator.class);
+    private final ChatClient chatClient;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public AnswerEvaluator(ChatClient.Builder builder) {
+        this.chatClient = builder.build();
+    }
+
+    /** 评估结果：score 0-100，summary 简要点评 */
+    public record EvaluationResult(int score, String summary) {}
+
+    /**
+     * 评估回答并返回评分与点评；LLM 调用失败时降级为参考分 60（不影响流程推进）。
+     */
+    public EvaluationResult evaluate(String question, String answer) {
+        return LlmCallWrapper.callWithRetry(
+                () -> {
+                    String content = chatClient.prompt().user(buildPrompt(question, answer)).call().content();
+                    return parse(content);
+                },
+                () -> new EvaluationResult(60, "评估服务暂不可用，按参考分计入"));
+    }
+
+    private String buildPrompt(String question, String answer) {
+        String q = question == null ? "" : question;
+        String a = answer == null ? "" : answer;
+        // 控制 prompt 长度，避免超长回答拖垮上下文
+        if (a.length() > 4000) {
+            a = a.substring(0, 4000) + "……";
+        }
+        return "你是一位专业的技术面试官，请评估候选人对面试题的回答质量。\n\n"
+                + "面试题：" + q + "\n\n"
+                + "候选人回答：" + a + "\n\n"
+                + "评分标准：90-100 优秀（准确、深入、有实践见解）；70-89 良好（基本正确但深度或广度不足）；"
+                + "50-69 一般（部分正确、有明显缺漏）；0-49 不达标（错误较多或答非所问）。\n"
+                + "只输出 JSON，不要输出任何其他内容：{\"score\": <0-100的整数>, \"summary\": \"<60字以内的简要点评>\"}";
+    }
+
+    private EvaluationResult parse(String content) {
+        try {
+            String json = content == null ? "" : content;
+            int start = json.indexOf('{');
+            int end = json.lastIndexOf('}');
+            if (start < 0 || end <= start) {
+                throw new IllegalArgumentException("LLM 评分输出缺少 JSON: " + json);
+            }
+            JsonNode node = objectMapper.readTree(json.substring(start, end + 1));
+            int score = Math.max(0, Math.min(100, node.path("score").asInt(60)));
+            String summary = node.path("summary").asText("");
+            return new EvaluationResult(score, summary);
+        } catch (Exception e) {
+            // 解析失败视为本次 LLM 调用失败，交由重试/降级处理
+            throw new RuntimeException("LLM 评分结果解析失败", e);
+        }
+    }
+}

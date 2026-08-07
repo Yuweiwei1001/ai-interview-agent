@@ -16,6 +16,7 @@ import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interview.agent.coding.CodeEvaluationEngine;
 import com.interview.agent.coding.testcase.TestCaseService;
+import com.interview.agent.interview.agent.AnswerEvaluator;
 import com.interview.agent.interview.agent.CodingAgent;
 import com.interview.agent.interview.agent.ContextWindowManager;
 import com.interview.agent.interview.agent.CoordinatorAgent;
@@ -31,7 +32,6 @@ import com.interview.agent.interview.graph.node.EvaluateNode;
 import com.interview.agent.interview.graph.node.FollowUpNode;
 import com.interview.agent.interview.graph.node.PlanNode;
 import com.interview.agent.interview.plan.PlanGenerator;
-import com.interview.agent.interview.policy.BehaviorPolicy;
 import com.interview.agent.interview.policy.BehaviorPolicyFactory;
 import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
@@ -99,6 +99,7 @@ public class InterviewGraphBuilder {
     private final KnowledgePointService knowledgePointService;
     private final CodeEvaluationEngine codeEvaluationEngine;
     private final TestCaseService testCaseService;
+    private final AnswerEvaluator answerEvaluator;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
@@ -107,7 +108,7 @@ public class InterviewGraphBuilder {
                                  BehaviorPolicyFactory policyFactory, QuestionDeduper questionDeduper,
                                  FollowUpGenerator followUpGenerator, ContextWindowManager contextWindowManager,
                                  KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
-                                 TestCaseService testCaseService) {
+                                 TestCaseService testCaseService, AnswerEvaluator answerEvaluator) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -123,6 +124,7 @@ public class InterviewGraphBuilder {
         this.knowledgePointService = knowledgePointService;
         this.codeEvaluationEngine = codeEvaluationEngine;
         this.testCaseService = testCaseService;
+        this.answerEvaluator = answerEvaluator;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -145,7 +147,7 @@ public class InterviewGraphBuilder {
         CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent, questionDeduper, contextWindowManager);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
-                codeEvaluationEngine, testCaseService);
+                codeEvaluationEngine, testCaseService, answerEvaluator);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());
@@ -290,39 +292,11 @@ public class InterviewGraphBuilder {
      * 判断是否结束面试
      */
     private boolean shouldEnd(InterviewState state) {
-        if (state.getCurrentRound() >= state.getMaxRounds()) {
-            return true;
-        }
-
-        BehaviorPolicy policy = policyFactory.getPolicy(state.getPersona());
-        BehaviorPolicy.EvaluationStrictness strictness = policy.evaluationStrictness();
-
-        // 根据严格度设置不同的通过阈值
-        int passThreshold = switch (strictness) {
-            case STRICT -> 80;
-            case STANDARD -> 60;
-            case LENIENT -> 40;
-        };
-
-        // 连续3轮达到阈值视为通过
-        if (state.getRounds().size() >= 3) {
-            List<InterviewState.RoundRecord> last3 = state.getRounds()
-                    .subList(state.getRounds().size() - 3, state.getRounds().size());
-            boolean allPassed = last3.stream()
-                    .allMatch(r -> {
-                        Object score = r.getEvaluation().get("score");
-                        return score instanceof Number && ((Number) score).intValue() >= passThreshold;
-                    });
-            if (allPassed) {
-                // 连续满分可提前结束，但必须已出过编程题（否则编程环节会被跳过）
-                boolean hasCoding = last3.stream().anyMatch(r -> "coding".equals(r.getAgentName()))
-                        || state.getRounds().stream().anyMatch(r -> "coding".equals(r.getAgentName()));
-                if (hasCoding) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        // 结束条件以面试计划轮次为准（maxRounds 由 PlanNode 按面试时长生成）。
+        // 注：历史上的「连续3轮达标提前结束」在文本评分失真（长度启发式恒定满分）时会让面试在
+        //     编程题后直接终结，候选人感知为“没有进入下一题”，与计划轮次冲突，故移除；
+        //     如需恢复提前结束特性，应以真实评分为前提并设置最低轮次门槛。
+        return state.getCurrentRound() >= state.getMaxRounds();
     }
 
     /**

@@ -3,6 +3,7 @@ package com.interview.agent.interview.graph.node;
 import com.interview.agent.coding.CodeEvaluationEngine;
 import com.interview.agent.coding.CodeEvaluationResult;
 import com.interview.agent.coding.testcase.TestCaseService;
+import com.interview.agent.interview.agent.AnswerEvaluator;
 import com.interview.agent.interview.agent.FollowUpGenerator;
 import com.interview.agent.interview.graph.InterviewState;
 import com.interview.agent.interview.graph.InterviewState.RoundRecord;
@@ -24,15 +25,17 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
     private final KnowledgePointService knowledgePointService;
     private final CodeEvaluationEngine codeEvaluationEngine;
     private final TestCaseService testCaseService;
+    private final AnswerEvaluator answerEvaluator;
 
     public EvaluateNode(BehaviorPolicyFactory policyFactory, FollowUpGenerator followUpGenerator,
                         KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
-                        TestCaseService testCaseService) {
+                        TestCaseService testCaseService, AnswerEvaluator answerEvaluator) {
         this.policyFactory = policyFactory;
         this.followUpGenerator = followUpGenerator;
         this.knowledgePointService = knowledgePointService;
         this.codeEvaluationEngine = codeEvaluationEngine;
         this.testCaseService = testCaseService;
+        this.answerEvaluator = answerEvaluator;
     }
 
     @Override
@@ -43,12 +46,18 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         String answer = state.getCurrentAnswer();
         Map<String, Object> evaluation = new HashMap<>();
 
-        // 基础评估（Coding 环节使用代码评估引擎，其他环节按回答长度）
+        // 基础评估（Coding 环节使用代码评估引擎，文本题由 LLM 真实评分）
         int baseScore;
+        String llmSummary = null;
         if ("coding".equals(state.getCurrentAgent())) {
             baseScore = evaluateCodingCode(state, evaluation);
         } else {
-            baseScore = Math.min(100, (answer != null ? answer.length() : 0) * 2);
+            // 历史的长度启发式（answer.length()*2）会让长回答恒定满分，触发面试提前结束，已替换为 LLM 评分
+            AnswerEvaluator.EvaluationResult textEval = answerEvaluator.evaluate(state.getCurrentQuestion(), answer);
+            baseScore = textEval.score();
+            llmSummary = textEval.summary();
+            log.info("EvaluateNode: 文本题评分完成, round={}, sessionId={}, score={}",
+                    state.getCurrentRound(), state.getSessionId(), baseScore);
         }
         
         // 根据人格调整评分
@@ -57,7 +66,9 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         evaluation.put("score", score);
         evaluation.put("knowledgePoints", extractKnowledgePoints(answer));
         evaluation.put("completeness", score >= 60 ? "good" : "needs_improvement");
-        evaluation.put("summary", score >= 60 ? "回答基本完整" : "回答不够充分，需要进一步考察");
+        evaluation.put("summary", llmSummary != null && !llmSummary.isBlank()
+                ? llmSummary
+                : (score >= 60 ? "回答基本完整" : "回答不够充分，需要进一步考察"));
 
         // 策略决策
         boolean shouldRetry = policy.shouldAllowRetry(state.getCurrentRound(), score);

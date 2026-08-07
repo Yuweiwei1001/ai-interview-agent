@@ -45,13 +45,20 @@ public class SseRegistry {
 
     public void send(String sessionId, SseEmitter.SseEventBuilder event) {
         SseEmitter emitter = emitters.get(sessionId);
-        if (emitter != null) {
-            try {
-                emitter.send(event);
-            } catch (IOException e) {
-                log.warn("SSE 发送失败: {}", sessionId, e);
-                emitters.remove(sessionId);
-            }
+        if (emitter == null) {
+            // 静默丢弃会让前端永久等待（如编程题提交后收不到结果），必须留痕
+            log.warn("SSE 无活跃连接，事件已丢弃: sessionId={}", sessionId);
+            return;
+        }
+        try {
+            emitter.send(event);
+        } catch (IOException e) {
+            log.warn("SSE 发送失败: {}", sessionId, e);
+            emitters.remove(sessionId);
+        } catch (IllegalStateException e) {
+            // emitter 已完成（complete/超时后容器已收尾），发送会抛 IllegalStateException
+            log.warn("SSE 连接已关闭，事件发送失败: sessionId={}", sessionId, e);
+            emitters.remove(sessionId);
         }
     }
 
