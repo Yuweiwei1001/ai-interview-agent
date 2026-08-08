@@ -95,7 +95,41 @@ public class TestCaseService {
             log.warn("动态用例生成失败，仅使用预设用例", e);
         }
 
+        // 预设用例与动态用例均为空（如 LLM 服务不可用时）：用内置模板用例兜底，
+        // 保证代码能真实跑沙箱测试，正确代码不会被误判为“未通过”
+        if (presetCases == null || presetCases.isEmpty()) {
+            List<TestCase> templates = matchBuiltinTemplates(questionTitle);
+            if (!templates.isEmpty()) {
+                TestRunResult tplResult = runTests(code, language, templates);
+                tplResult.getResults().forEach(r -> r.setSource("builtin"));
+                log.info("使用内置模板用例兜底: questionTitle={}, 用例数={}", questionTitle, templates.size());
+                return tplResult;
+            }
+        }
+
         return presetResult;
+    }
+
+    /**
+     * 常见算法题内置模板用例：仅用于 LLM 动态用例生成失败时的兜底，
+     * 保证沙箱能真实运行代码、正确代码不被误判。
+     * 输入格式约定：首行数组长度 n，次行 n 个数，末行 target；输出下标对。
+     */
+    private List<TestCase> matchBuiltinTemplates(String questionTitle) {
+        String title = questionTitle == null ? "" : questionTitle.toLowerCase();
+        // 覆盖常见题目变体：两数之和 / 两个数 / two sum / 含 nums 与 target 的题干
+        if (title.contains("两数之和") || title.contains("两个数") || title.contains("两数")
+                || title.contains("two sum") || title.contains("twosum") || title.contains("two_sum")
+                || (title.contains("nums") && title.contains("target"))) {
+            return List.of(
+                    new TestCase("基本用例", "4\n2 7 11 15\n9", "0 1"),
+                    new TestCase("负数和零", "3\n-3 0 1\n-3", "0 1"),
+                    new TestCase("解在末尾", "4\n1 2 3 4\n7", "2 3"),
+                    new TestCase("重复值", "4\n3 3 4 5\n6", "0 1")
+            );
+        }
+        // 其他题型可继续补充模板
+        return List.of();
     }
 
     public static class TestCase {

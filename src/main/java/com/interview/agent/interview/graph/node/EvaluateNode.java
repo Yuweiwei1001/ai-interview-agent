@@ -85,7 +85,8 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         // waitingForCode 是图中 decideCodingNext 边路由的唯一事实来源，必须在此（节点体内）设置，
         // 否则 interruptBefore(codingRetryWait) 挂起时节点体不执行，外层无法感知挂起原因。
         if ("coding".equals(state.getCurrentAgent())) {
-            decideCodingRetry(state, policy, score);
+            boolean degraded = Boolean.TRUE.equals(evaluation.get("degraded"));
+            decideCodingRetry(state, policy, score, degraded);
         }
 
         // 评估完成后，根据策略生成追问
@@ -138,7 +139,7 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
      * 达标 / 人格不给重试机会 / 已达重试上限 / 已是最后一轮 → 不挂起，流向 coordinator 或 END；
      * 否则置 waitingForCode=true 并生成提示，图将在 codingRetryWait 前挂起，等待重新提交代码。
      */
-    private void decideCodingRetry(InterviewState state, BehaviorPolicy policy, int score) {
+    private void decideCodingRetry(InterviewState state, BehaviorPolicy policy, int score, boolean degraded) {
         int passThreshold = switch (policy.evaluationStrictness()) {
             case STRICT -> 80;
             case STANDARD -> 60;
@@ -161,6 +162,11 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         String retryHint = policy.generateHint(state.getCurrentQuestion(), state.getCurrentAnswer(), score);
         if (retryHint == null || retryHint.isBlank()) {
             retryHint = "当前代码未通过评估，请检查逻辑与边界情况后重新提交。";
+        }
+        // 服务降级（LLM 不可用、沙箱异常等）导致的低分：提示服务异常而非代码问题，
+        // 避免候选人反复修改本来正确的代码
+        if (degraded) {
+            retryHint = "评估服务暂不可用（已按测试结果降级评分），代码本身可能没有问题，请稍后重新提交试试";
         }
         state.setCodingHint(retryHint);
         state.setWaitingForCode(true);
@@ -201,14 +207,19 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
             evaluation.put("testPassRate", codeEval.getTestPassRate());
             evaluation.put("suggestions", codeEval.getSuggestions() != null ? codeEval.getSuggestions() : List.of());
             evaluation.put("codeSummary", codeEval.getSummary());
+            if (codeEval.isDegraded()) {
+                evaluation.put("degraded", true);
+            }
 
             log.info("Coding 评估完成: sessionId={}, overallScore={}, testPassRate={}",
                     state.getSessionId(), codeEval.getOverallScore(), codeEval.getTestPassRate());
             return codeEval.getOverallScore();
         } catch (Exception e) {
-            log.warn("代码评估失败，使用基础评分: sessionId={}", state.getSessionId(), e);
-            evaluation.put("codeSummary", "代码评估失败，按基础规则评分");
-            return Math.min(100, code.length() * 2);
+            log.warn("代码评估失败，标记为降级评分: sessionId={}", state.getSessionId(), e);
+            evaluation.put("codeSummary", "代码评估失败（沙箱或评分服务异常），按降级规则评分");
+            evaluation.put("degraded", true);
+            // 评估链路异常（非代码问题）：给中性分，由降级提示引导重试，不再用长度启发式
+            return 40;
         }
     }
 

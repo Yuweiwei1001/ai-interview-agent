@@ -43,15 +43,22 @@ public class CodeEvaluationEngine {
         // 2. LLM 评估其他维度
         CodeEvaluationResult llmResult = evaluateWithLLM(code, language, questionTitle);
 
+        // 2.1 LLM 不可用：整体走规则降级评估（以测试通过率为核心），
+        //     避免内联拼凑出脱离实际的低分，导致正确代码被误判为“未通过”
+        if (llmResult == null) {
+            log.warn("LLM 代码评估不可用，降级为规则评估: testPassRate={}", testPassRate);
+            return ruleBasedEvaluate(code, language, testResult);
+        }
+
         // 3. 合并结果
         CodeEvaluationResult result = new CodeEvaluationResult();
         result.setTestPassRate(testPassRate);
-        result.setCorrectness(llmResult != null ? llmResult.getCorrectness() : testPassRate);
-        result.setCodeQuality(llmResult != null ? llmResult.getCodeQuality() : Math.max(0, testPassRate - 10));
-        result.setEdgeCaseHandling(llmResult != null ? llmResult.getEdgeCaseHandling() : testPassRate);
-        result.setTimeComplexity(llmResult != null ? llmResult.getTimeComplexity() : 70);
-        result.setSuggestions(llmResult != null ? llmResult.getSuggestions() : List.of("注意代码质量"));
-        result.setSummary(llmResult != null ? llmResult.getSummary() : "评估完成");
+        result.setCorrectness(llmResult.getCorrectness());
+        result.setCodeQuality(llmResult.getCodeQuality());
+        result.setEdgeCaseHandling(llmResult.getEdgeCaseHandling());
+        result.setTimeComplexity(llmResult.getTimeComplexity());
+        result.setSuggestions(llmResult.getSuggestions());
+        result.setSummary(llmResult.getSummary());
 
         // 4. 计算综合评分
         int overallScore = (int) Math.round(
@@ -86,8 +93,9 @@ public class CodeEvaluationEngine {
                 70 * WEIGHT_TIME_COMPLEXITY +
                 testPassRate * WEIGHT_TEST_PASS
         ));
-        result.setSuggestions(List.of("建议检查代码风格和边界情况"));
-        result.setSummary("规则评估完成");
+        result.setSuggestions(List.of("评估服务暂不可用，建议检查代码风格和边界情况"));
+        result.setSummary("评估服务暂不可用，已按测试通过率降级评分");
+        result.setDegraded(true);
         return result;
     }
 

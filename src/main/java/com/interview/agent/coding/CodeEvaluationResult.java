@@ -16,6 +16,7 @@ public class CodeEvaluationResult {
     private int overallScore;      // 综合评分
     private List<String> suggestions;
     private String summary;
+    private boolean degraded;       // LLM 评估不可用时标记为降级评分（提示候选人非代码问题）
 
     public int getCorrectness() { return correctness; }
     public void setCorrectness(int correctness) { this.correctness = correctness; }
@@ -33,4 +34,6 @@ public class CodeEvaluationResult {
     public void setSuggestions(List<String> suggestions) { this.suggestions = suggestions; }
     public String getSummary() { return summary; }
     public void setSummary(String summary) { this.summary = summary; }
+    public boolean isDegraded() { return degraded; }
+    public void setDegraded(boolean degraded) { this.degraded = degraded; }
 }
