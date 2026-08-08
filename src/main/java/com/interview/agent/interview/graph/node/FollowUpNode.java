@@ -26,7 +26,7 @@ public class FollowUpNode implements Function<InterviewState, InterviewState> {
         state.setIsFollowUpRound(true);
         state.setCurrentQuestion(followUp);
         askQuestionTool.sendThinking(state.getSessionId());
-        String answer = askQuestionTool.askAndWait(state.getSessionId(), followUp, "FOLLOW_UP");
+        String answer = askQuestionTool.askAndWait(state.getSessionId(), followUp, "FOLLOW_UP", state.getCurrentRound());
         state.setCurrentAnswer(answer);
         state.setPendingFollowUp(null);
         return state;

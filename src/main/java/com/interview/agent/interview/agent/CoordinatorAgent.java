@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 
 @Component
@@ -64,7 +65,18 @@ public class CoordinatorAgent {
         sb.append("当前面试状态：\n");
         sb.append("- 已进行轮次：").append(state.getCurrentRound()).append("\n");
         sb.append("- 当前 Agent：").append(state.getCurrentAgent() != null ? state.getCurrentAgent() : "无").append("\n");
-        sb.append("- 面试方向：").append(state.getDirection() != null ? state.getDirection() : "综合技术").append("\n\n");
+        sb.append("- 面试方向：").append(state.getDirection() != null ? state.getDirection() : "综合技术").append("\n");
+        sb.append("- 面试人格：").append(state.getPersona() != null ? state.getPersona() : "neutral").append("\n\n");
+
+        // 已考察主题（去重强约束）
+        List<String> askedTopics = state.getRounds().stream()
+                .map(InterviewState.RoundRecord::getTopic)
+                .filter(t -> t != null && !t.isBlank())
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+        if (!askedTopics.isEmpty()) {
+            sb.append("已考察主题（严禁再次选择相同或相似主题，务必避开）：").append(String.join("、", askedTopics)).append("\n\n");
+        }
 
         if (conversationHistory != null && !conversationHistory.isBlank()) {
             sb.append("对话历史：\n").append(conversationHistory).append("\n\n");
@@ -72,14 +84,19 @@ public class CoordinatorAgent {
 
         sb.append("可选 Agent：\n");
         sb.append("- technical：技术基础（计算机基础、数据结构、算法、编程语言特性）\n");
-        sb.append("- project：项目经验（架构设计、技术选型、系统设计、项目管理）\n");
+        sb.append("- project：项目经验（项目经历深挖、技术选型、架构）\n");
         sb.append("- coding：编码能力（算法实现、代码质量、调试能力）\n\n");
 
         sb.append("请输出JSON格式决策，包含字段：nextAgent(选择上述Agent名称), reason(选择原因), topic(具体考察主题), difficulty(难度: 简单/中等/困难)\n");
         sb.append("规则：\n");
         sb.append("1. 避免连续超过3次同一Agent，优先考察未涉及的Agent。\n");
         sb.append("2. coding 全场最多安排一次，且只安排在面试中后段（前2题不要安排 coding）。\n");
-        sb.append("3. coding 仅用于纯算法题（数组/链表/哈希/树/动态规划等）；系统设计、架构、Redis/中间件应用类问题归 project 或 technical。\n");
+        sb.append("3. coding 仅用于纯算法题（数组/链表/哈希/树/动态规划等）；系统设计、架构、中间件应用类问题归 project 或 technical。\n");
+        sb.append("4. 题目类型分布：technical 以基础概念/原理/日常开发八股为主，不得出大型系统设计题；project 以候选人项目经历深挖为主，系统设计题最多占 project 题量的三分之一。\n");
+        sb.append("5. 严禁重复考察同一主题/同一技术点（如已问过分布式ID生成器，就不得再问任何 ID 生成、RingBuffer、时钟回拨相关题目）。\n");
+        if ("gentle".equalsIgnoreCase(state.getPersona())) {
+            sb.append("6. 候选人选择温和人格：难度以简单为主、最多中等，避免偏难怪题，优先基础概念与常规项目问题。\n");
+        }
         return sb.toString();
     }
 

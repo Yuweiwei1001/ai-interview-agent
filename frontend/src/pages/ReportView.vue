@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NProgress, NSpin, NAlert, NButton } from 'naive-ui';
 import { getReport, type InterviewReport } from '../api/interview';
@@ -9,6 +9,16 @@ const router = useRouter();
 const report = ref<InterviewReport | null>(null);
 const loading = ref(true);
 const error = ref('');
+
+/* 问答折叠面板：默认展开第一题 */
+const expandedQs = ref<Set<number>>(new Set([0]));
+
+function toggleQ(idx: number) {
+  const s = new Set(expandedQs.value);
+  if (s.has(idx)) s.delete(idx);
+  else s.add(idx);
+  expandedQs.value = s;
+}
 
 onMounted(async () => {
   try {
@@ -21,6 +31,7 @@ onMounted(async () => {
   }
 });
 
+/* 分数颜色（文本/十六进制） */
 function scoreColor(score: number): string {
   if (score >= 80) return 'text-green-600';
   if (score >= 60) return 'text-yellow-600';
@@ -33,12 +44,28 @@ function scoreBg(score: number): string {
   return 'bg-red-50';
 }
 
-/* 美化：进度条/环形图使用的十六进制色值，与文字色阶一致 */
 function scoreHex(score: number): string {
   if (score >= 80) return '#16a34a';
   if (score >= 60) return '#d97706';
   return '#dc2626';
 }
+
+/* 结论徽标（借鉴 ThinkVerse 报告页：🌟推荐 / ⏳待定 / ❌不推荐） */
+const conclusion = computed(() => {
+  if (!report.value) return { text: '', cls: '' };
+  const s = report.value.overallScore;
+  if (s >= 80) return { text: '🌟 推荐', cls: 'bg-green-50 text-green-700' };
+  if (s >= 60) return { text: '⏳ 待定', cls: 'bg-amber-50 text-amber-600' };
+  return { text: '❌ 不推荐', cls: 'bg-red-50 text-red-600' };
+});
+
+/* 维度名中文化 */
+const dimensionLabels: Record<string, string> = {
+  technical: '技术基础',
+  project: '项目经验',
+  coding: '编码能力',
+  communication: '沟通表达'
+};
 </script>
 
 <template>
@@ -52,25 +79,37 @@ function scoreHex(score: number): string {
         <h2 class="text-2xl font-bold text-slate-800 tracking-tight">面试报告</h2>
       </div>
 
-      <!-- 美化：加载/错误状态组件化 -->
       <div v-if="loading" class="flex justify-center py-24">
         <n-spin size="large" description="报告加载中..." />
       </div>
       <n-alert v-else-if="error" type="error" :bordered="false" class="rounded-xl">{{ error }}</n-alert>
 
       <template v-else-if="report">
-        <!-- 美化：总分升级为环形进度图 -->
-        <div class="bg-white rounded-2xl shadow-card p-8 mb-6 flex flex-col items-center">
-          <h3 class="text-lg font-semibold text-slate-600 mb-6">综合评分</h3>
-          <n-progress type="circle" :percentage="Math.round(report.overallScore)"
-            :color="scoreHex(report.overallScore)" :stroke-width="8" :size="160">
-            <div>
-              <div class="text-5xl font-bold" :class="scoreColor(report.overallScore)">
-                {{ Math.round(report.overallScore) }}
-              </div>
-              <p class="text-slate-400 text-sm mt-1">/ 100</p>
+        <!-- 顶部概览：环形分 + 结论徽标 + 题数 -->
+        <div class="bg-white rounded-2xl shadow-card p-8 mb-6">
+          <div class="flex flex-col md:flex-row items-center gap-8">
+            <div class="relative flex-shrink-0">
+              <n-progress type="circle" :percentage="Math.round(report.overallScore)"
+                :color="scoreHex(report.overallScore)" :stroke-width="8" :size="150">
+                <div>
+                  <div class="text-4xl font-bold tabular-nums" :class="scoreColor(report.overallScore)">
+                    {{ Math.round(report.overallScore) }}
+                  </div>
+                  <p class="text-slate-400 text-xs mt-1">综合得分 /100</p>
+                </div>
+              </n-progress>
             </div>
-          </n-progress>
+            <div class="flex-1 text-center md:text-left">
+              <span :class="['inline-block px-4 py-1.5 rounded-full text-sm font-bold mb-3', conclusion.cls]">
+                {{ conclusion.text }}
+              </span>
+              <h3 class="text-lg font-bold text-slate-800 mb-2">本次面试评估</h3>
+              <div class="grid grid-cols-2 gap-x-8 gap-y-2.5 text-sm max-w-md mx-auto md:mx-0">
+                <div><span class="text-slate-400">题目数量：</span><span class="font-medium text-slate-700">{{ report.perQuestionFeedback.length }} 题</span></div>
+                <div><span class="text-slate-400">面试状态：</span><span class="font-medium text-green-600">已完成</span></div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 成长对比 -->
@@ -94,14 +133,14 @@ function scoreHex(score: number): string {
           </div>
         </div>
 
-        <!-- 美化：维度分升级进度条 -->
+        <!-- 维度评分 -->
         <div class="bg-white rounded-2xl shadow-card p-6 sm:p-8 mb-6">
           <h3 class="text-lg font-bold text-slate-800 mb-4">维度评分</h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div v-for="(score, dim) in report.dimensionScores" :key="dim"
               class="p-4 rounded-xl" :class="scoreBg(score)">
               <div class="flex items-center justify-between mb-2">
-                <p class="text-sm text-slate-600 capitalize">{{ dim }}</p>
+                <p class="text-sm text-slate-600">{{ dimensionLabels[dim] || dim }}</p>
                 <p class="text-xl font-bold" :class="scoreColor(score)">{{ Math.round(score) }}</p>
               </div>
               <n-progress type="line" :percentage="Math.round(score)" :color="scoreHex(score)"
@@ -110,23 +149,25 @@ function scoreHex(score: number): string {
           </div>
         </div>
 
-        <!-- 优势与不足 -->
+        <!-- 优势与不足：双列 -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <div class="bg-white rounded-2xl shadow-card p-6 sm:p-8">
-            <h3 class="text-lg font-bold text-green-600 mb-3">优势</h3>
+          <div class="bg-white rounded-2xl shadow-card p-6 sm:p-8 border-l-4 border-l-green-500">
+            <h3 class="text-lg font-bold text-green-600 mb-3">✔ 核心优势</h3>
             <ul class="space-y-2">
               <li v-for="(s, i) in report.strengths" :key="i" class="text-slate-700 text-sm leading-relaxed flex gap-2">
                 <span class="text-green-500 shrink-0">✓</span> {{ s }}
               </li>
             </ul>
+            <p v-if="!report.strengths.length" class="text-sm text-slate-400">核心优势：无</p>
           </div>
-          <div class="bg-white rounded-2xl shadow-card p-6 sm:p-8">
-            <h3 class="text-lg font-bold text-red-600 mb-3">待改进</h3>
+          <div class="bg-white rounded-2xl shadow-card p-6 sm:p-8 border-l-4 border-l-orange-400">
+            <h3 class="text-lg font-bold text-orange-600 mb-3">↑ 待提升项</h3>
             <ul class="space-y-2">
               <li v-for="(w, i) in report.weaknesses" :key="i" class="text-slate-700 text-sm leading-relaxed flex gap-2">
-                <span class="text-red-500 shrink-0">✗</span> {{ w }}
+                <span class="text-orange-500 shrink-0">✗</span> {{ w }}
               </li>
             </ul>
+            <p v-if="!report.weaknesses.length" class="text-sm text-slate-400">待提升项：无</p>
           </div>
         </div>
 
@@ -140,18 +181,51 @@ function scoreHex(score: number): string {
           </ul>
         </div>
 
-        <!-- 逐题反馈 -->
-        <div class="bg-white rounded-2xl shadow-card p-6 sm:p-8 mb-6">
-          <h3 class="text-lg font-bold text-slate-800 mb-4">逐题反馈</h3>
-          <div v-for="q in report.perQuestionFeedback" :key="q.roundNumber"
-            class="border border-slate-200/80 bg-slate-50/50 rounded-xl p-4 mb-3 last:mb-0">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm font-semibold text-slate-600">第 {{ q.roundNumber }} 题</span>
-              <span class="text-sm font-bold" :class="scoreColor(q.score)">{{ Math.round(q.score) }} 分</span>
+        <!-- 问答回顾：折叠面板 -->
+        <div class="mb-6">
+          <h3 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <span class="w-1 h-4.5 bg-blue-500 rounded-full"></span>问答回顾与点评（{{ report.perQuestionFeedback.length }}）
+          </h3>
+          <div class="space-y-3">
+            <div v-for="(q, idx) in report.perQuestionFeedback" :key="idx"
+              class="bg-white rounded-2xl shadow-card overflow-hidden">
+              <button
+                class="w-full px-5 py-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-slate-50/70 transition text-left"
+                @click="toggleQ(idx)">
+                <div class="flex items-center gap-2.5 min-w-0">
+                  <span class="text-xs font-bold text-white bg-blue-500 px-2 py-0.5 rounded-full flex-shrink-0">Q{{ q.roundNumber }}</span>
+                  <span class="text-sm font-medium text-slate-700 truncate">{{ q.question }}</span>
+                </div>
+                <div class="flex items-center gap-3 flex-shrink-0">
+                  <span v-if="q.score != null" class="text-sm font-bold tabular-nums" :class="scoreColor(q.score)">
+                    {{ Math.round(q.score) }}<span class="text-xs font-medium text-slate-400">/100</span>
+                  </span>
+                  <span class="text-slate-400 text-xs transition-transform duration-200"
+                    :class="expandedQs.has(idx) ? 'rotate-180' : ''">▼</span>
+                </div>
+              </button>
+              <div v-show="expandedQs.has(idx)" class="px-5 pb-5 border-t border-slate-100">
+                <div class="flex items-start gap-2.5 mt-4 mb-3">
+                  <span class="flex-shrink-0 w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-[10px] font-bold mt-0.5">AI</span>
+                  <p class="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{{ q.question }}</p>
+                </div>
+                <div class="flex items-start gap-2.5 ml-8">
+                  <span class="flex-shrink-0 w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-white text-[10px] font-bold mt-0.5">你</span>
+                  <p class="flex-1 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{{ q.answer || '(未回答)' }}</p>
+                </div>
+                <div v-if="q.score != null" class="mt-3.5 ml-8">
+                  <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-700"
+                      :style="{ width: Math.min(100, Math.round(q.score)) + '%', backgroundColor: scoreHex(q.score) }"></div>
+                  </div>
+                </div>
+                <div v-if="q.feedback" class="mt-3.5 ml-8 p-3.5 bg-amber-50 rounded-xl border border-amber-100">
+                  <p class="text-xs text-amber-700 leading-relaxed">
+                    <span class="font-bold">💡 AI 点评：</span>{{ q.feedback }}
+                  </p>
+                </div>
+              </div>
             </div>
-            <p class="text-sm text-slate-800 mb-1 leading-relaxed"><strong>题目：</strong> {{ q.question }}</p>
-            <p class="text-sm text-slate-600 mb-1 leading-relaxed"><strong>回答：</strong> {{ q.answer }}</p>
-            <p class="text-sm text-slate-500 leading-relaxed"><strong>评价：</strong> {{ q.feedback }}</p>
           </div>
         </div>
 

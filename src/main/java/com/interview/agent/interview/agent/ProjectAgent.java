@@ -19,8 +19,12 @@ public class ProjectAgent {
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics) {
+        return generateQuestion(topic, difficulty, resumeText, askedTopics, "neutral");
+    }
+
+    public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona) {
         return LlmCallWrapper.callWithRetry(() -> {
-            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics);
+            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona);
             String result = chatClient.prompt().user(prompt).call().content();
             if (result == null || result.isBlank()) {
                 throw new RuntimeException("Agent 出题返回空");
@@ -29,9 +33,9 @@ public class ProjectAgent {
         }, () -> fallbackQuestion(topic, difficulty));
     }
 
-    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics) {
+    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona) {
         StringBuilder sb = new StringBuilder();
-        sb.append("你是一位资深项目面试官，负责考察候选人的项目经验和系统设计能力。\n\n");
+        sb.append("你是一位资深项目面试官，负责考察候选人的项目经验。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
         sb.append("难度级别：").append(difficulty).append("\n\n");
         if (resumeText != null && !resumeText.isBlank()) {
@@ -40,7 +44,14 @@ public class ProjectAgent {
         if (askedTopics != null && !askedTopics.isEmpty()) {
             sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
         }
-        sb.append("请出一道项目经验或系统设计面试题，要求候选人结合实际项目经验回答。直接输出题目内容。");
+        sb.append("请出一道项目经验题，要求候选人结合真实项目经历回答。\n");
+        sb.append("要求：\n");
+        sb.append("1. 优先考察项目经历细节（项目背景、难点、方案、权衡、踩坑），系统设计题最多占三分之一。\n");
+        sb.append("2. 严禁与已考察主题重复；不要反复围绕简历中同一个项目/同一技术点出题（如已问过ID生成器，就不许再问ID、RingBuffer、时钟回拨）。\n");
+        if ("gentle".equalsIgnoreCase(persona)) {
+            sb.append("3. 候选人选择温和人格：优先基础的项目介绍/职责/技术栈类问题，避免大型架构设计题。\n");
+        }
+        sb.append("直接输出题目内容。");
         return sb.toString();
     }
 

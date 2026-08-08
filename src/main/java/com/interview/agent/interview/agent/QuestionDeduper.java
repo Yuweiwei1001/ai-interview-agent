@@ -50,13 +50,36 @@ public class QuestionDeduper {
 
     private Set<String> extractKeywords(String text) {
         if (text == null || text.isBlank()) return Collections.emptySet();
-        // 简单分词：按标点和空格分割，过滤短词
-        return Arrays.stream(text.toLowerCase()
-                .replaceAll("[，。！？、；：\"\"''（）【】《》\\[\\]\\(\\)\\{\\}]", " ")
-                .split("\\s+"))
-                .filter(w -> w.length() > 1)
-                .collect(Collectors.toSet());
+        Set<String> keywords = new HashSet<>();
+        String lower = text.toLowerCase();
+        // 1. 英文单词 / 数字 / 驼峰词
+        for (String token : lower.split("[^a-z0-9]+")) {
+            if (token.length() > 1) {
+                keywords.add(token);
+            }
+        }
+        // 2. 中文连续片段按 2-gram 切分（有效捕捉中文主题相似度）
+        for (String seg : lower.split("[^\\u4e00-\\u9fa5]+")) {
+            if (seg.length() < 2) continue;
+            for (int i = 0; i < seg.length() - 1; i++) {
+                String gram = seg.substring(i, i + 2);
+                // 过滤常见停用 2-gram（“题目”“请问”“解释”“说明”等无意义词元）
+                if (!STOP_GRAMS.contains(gram)) {
+                    keywords.add(gram);
+                }
+            }
+        }
+        return keywords;
     }
+
+    /** 高频停用词元：不参与相似度计算，避免“请解释/请说明/你如何”等通用表述拉高相似度 */
+    private static final Set<String> STOP_GRAMS = Set.of(
+            "题目", "请问", "请结", "结合", "说明", "解释", "介绍", "描述", "谈谈", "阐述", "详细",
+            "如何", "怎么", "为什么", "哪些", "什么", "一个", "以及", "请你", "给出", "要求",
+            "候选", "回答", "问题", "面试", "技术", "设计", "系统", "项目", "简历", "实际", "真实",
+            "过程", "情况", "场景", "方案", "实现", "原理", "底层", "核心", "关键", "主要", "具体",
+            "相关", "方面", "维度", "分析", "考虑", "权衡", "策略", "机制", "架构", "流程", "思路"
+    );
 
     private double jaccardSimilarity(Set<String> a, Set<String> b) {
         if (a.isEmpty() && b.isEmpty()) return 0;

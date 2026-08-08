@@ -19,4 +19,7 @@ public interface InterviewRoundMapper {
 
     @Select("SELECT COUNT(*) FROM interview_round WHERE session_id = #{sessionId}")
     int countBySessionId(String sessionId);
+
+    @Delete("DELETE FROM interview_round WHERE session_id = #{sessionId}")
+    void deleteBySessionId(String sessionId);
 }

@@ -81,11 +81,20 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
                 .filter(q -> q != null && !q.isBlank())
                 .collect(Collectors.toList());
 
-        String question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics);
+        // topic 硬校验：与已考察主题重复时替换为综合主题，防止 LLM 反复出同一主题的变体题
+        final String rawTopic = topic;
+        if (topic != null && !topic.isBlank() && askedTopics.stream().anyMatch(t -> t.contains(rawTopic) || rawTopic.contains(t))) {
+            log.warn("topic 与已考察主题重复，替换为综合技术: topic={}", topic);
+            topic = "综合技术";
+        }
+        final String finalTopic = topic;
+
+        String persona = state.getPersona() != null ? state.getPersona() : "neutral";
+        String question = generateQuestion(nextAgent, finalTopic, difficulty, state.getResumeText(), askedTopics, persona);
         int retryCount = 0;
         while (questionDeduper.isDuplicate(question, existingQuestions) && retryCount < 3) {
             log.warn("题目重复，重新生成: retry={}, agent={}", retryCount, nextAgent);
-            question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics);
+            question = generateQuestion(nextAgent, finalTopic, difficulty, state.getResumeText(), askedTopics, persona);
             retryCount++;
         }
 
@@ -113,10 +122,10 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
         return techCount <= projCount ? "technical" : "project";
     }
 
-    private String generateQuestion(String nextAgent, String topic, String difficulty, String resumeText, List<String> askedTopics) {
+    private String generateQuestion(String nextAgent, String topic, String difficulty, String resumeText, List<String> askedTopics, String persona) {
         return switch (nextAgent) {
-            case "technical" -> technicalAgent.generateQuestion(topic, difficulty, resumeText, askedTopics);
-            case "project" -> projectAgent.generateQuestion(topic, difficulty, resumeText, askedTopics);
+            case "technical" -> technicalAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona);
+            case "project" -> projectAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona);
             case "coding" -> codingAgent.generateQuestion(topic, difficulty, resumeText, askedTopics);
             default -> "请介绍一下你的技术背景和项目经验。";
         };

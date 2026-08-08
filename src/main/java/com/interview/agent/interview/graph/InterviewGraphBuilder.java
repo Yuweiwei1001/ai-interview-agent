@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interview.agent.coding.CodeEvaluationEngine;
 import com.interview.agent.coding.testcase.TestCaseService;
 import com.interview.agent.interview.agent.AnswerEvaluator;
+import com.interview.agent.interview.RoundPersistenceService;
 import com.interview.agent.interview.agent.CodingAgent;
 import com.interview.agent.interview.agent.ContextWindowManager;
 import com.interview.agent.interview.agent.CoordinatorAgent;
@@ -100,6 +101,7 @@ public class InterviewGraphBuilder {
     private final CodeEvaluationEngine codeEvaluationEngine;
     private final TestCaseService testCaseService;
     private final AnswerEvaluator answerEvaluator;
+    private final RoundPersistenceService roundPersistenceService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
@@ -108,7 +110,8 @@ public class InterviewGraphBuilder {
                                  BehaviorPolicyFactory policyFactory, QuestionDeduper questionDeduper,
                                  FollowUpGenerator followUpGenerator, ContextWindowManager contextWindowManager,
                                  KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
-                                 TestCaseService testCaseService, AnswerEvaluator answerEvaluator) {
+                                 TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
+                                 RoundPersistenceService roundPersistenceService) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -125,6 +128,7 @@ public class InterviewGraphBuilder {
         this.codeEvaluationEngine = codeEvaluationEngine;
         this.testCaseService = testCaseService;
         this.answerEvaluator = answerEvaluator;
+        this.roundPersistenceService = roundPersistenceService;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -147,7 +151,7 @@ public class InterviewGraphBuilder {
         CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent, questionDeduper, contextWindowManager);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
-                codeEvaluationEngine, testCaseService, answerEvaluator);
+                codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());

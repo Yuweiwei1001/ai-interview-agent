@@ -32,6 +32,17 @@ const languageOptions = [
 
 let sseClient: SseClient | null = null;
 
+/* 解析题目事件负载：JSON {questionNumber, question, isFollowUp}，兼容旧版纯文本 */
+function parseQuestionPayload(data: string): { question: string; questionNumber?: number } {
+  try {
+    const obj = JSON.parse(data);
+    if (obj && typeof obj.question === 'string') {
+      return { question: obj.question, questionNumber: typeof obj.questionNumber === 'number' ? obj.questionNumber : undefined };
+    }
+  } catch { /* 非 JSON，按纯文本处理 */ }
+  return { question: data };
+}
+
 /* 提交后轮询兜底：SSE 事件若被中间层静默吞掉（曾致提交后永久卡在“评估中”），
    通过周期查询会话状态保证页面必然流转 */
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -78,16 +89,20 @@ onMounted(() => {
     sseClient = new SseClient();
     sseClient.connectGet(`/api/interviews/${sessionId}/stream`, (event) => {
       switch (event.event) {
-        case 'WAITING_CODE':
+        case 'WAITING_CODE': {
           // 编码页收到的 WAITING_CODE 只会是「代码未达标，挂起等待重试」的提示
+          const { question } = parseQuestionPayload(event.data);
           stopPolling();
-          retryHint.value = event.data;
+          retryHint.value = question;
           sseStatus.value = '';
           break;
-        case 'QUESTION':
+        }
+        case 'QUESTION': {
           // 回到文字面试环节，携带题目数据防止丢失
-          router.push({ name: 'InterviewRoom', query: { sessionId, question: event.data } });
+          const { question } = parseQuestionPayload(event.data);
+          router.push({ name: 'InterviewRoom', query: { sessionId, question } });
           break;
+        }
         case 'FOLLOW_UP':
           // 评估反馈在编码环节不展示
           break;

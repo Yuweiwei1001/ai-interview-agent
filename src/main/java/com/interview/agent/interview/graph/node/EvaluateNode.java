@@ -5,6 +5,7 @@ import com.interview.agent.coding.CodeEvaluationResult;
 import com.interview.agent.coding.testcase.TestCaseService;
 import com.interview.agent.interview.agent.AnswerEvaluator;
 import com.interview.agent.interview.agent.FollowUpGenerator;
+import com.interview.agent.interview.RoundPersistenceService;
 import com.interview.agent.interview.graph.InterviewState;
 import com.interview.agent.interview.graph.InterviewState.RoundRecord;
 import com.interview.agent.interview.policy.BehaviorPolicy;
@@ -26,16 +27,19 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
     private final CodeEvaluationEngine codeEvaluationEngine;
     private final TestCaseService testCaseService;
     private final AnswerEvaluator answerEvaluator;
+    private final RoundPersistenceService roundPersistenceService;
 
     public EvaluateNode(BehaviorPolicyFactory policyFactory, FollowUpGenerator followUpGenerator,
                         KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
-                        TestCaseService testCaseService, AnswerEvaluator answerEvaluator) {
+                        TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
+                        RoundPersistenceService roundPersistenceService) {
         this.policyFactory = policyFactory;
         this.followUpGenerator = followUpGenerator;
         this.knowledgePointService = knowledgePointService;
         this.codeEvaluationEngine = codeEvaluationEngine;
         this.testCaseService = testCaseService;
         this.answerEvaluator = answerEvaluator;
+        this.roundPersistenceService = roundPersistenceService;
     }
 
     @Override
@@ -117,6 +121,9 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
             record.setFollowupTarget((long) state.getCurrentRound());
         }
         state.getRounds().add(record);
+
+        // 增量持久化本轮（面试进行中即可从历史恢复，刷新/重进页面不丢对话）
+        roundPersistenceService.saveRound(state.getSessionId(), record);
 
         // 追问轮评估完成后重置标志
         if (state.isFollowUpRound()) {

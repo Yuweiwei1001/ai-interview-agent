@@ -1,36 +1,67 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NInput, NButton, NAlert, useDialog } from 'naive-ui';
 import { SseClient, type SseEvent } from '../utils/sse';
 import ChatBubble from '../components/ChatBubble.vue';
 
+interface Message {
+  role: 'assistant' | 'user';
+  content: string;
+  timestamp: string;
+  questionNumber?: number;
+  isFollowUp?: boolean;
+  isCoding?: boolean;
+}
+
 const route = useRoute();
 const router = useRouter();
 const dialog = useDialog();
 
-const messages = ref<{ role: 'assistant' | 'user'; content: string; timestamp: string }[]>([]);
+const messages = ref<Message[]>([]);
 const answer = ref('');
 const sessionId = ref('');
 const connected = ref(false);
 const completed = ref(false);
 const thinking = ref(false);
 const error = ref('');
+const reportReady = ref(false);
+const completeReason = ref('面试已结束');
 
-/* 美化：消息容器引用，用于新消息自动滚动到底部 */
+/* 消息容器引用，用于新消息自动滚动到底部 */
 const messagesEl = ref<HTMLElement>();
+
+/* 面试计时器：从页面挂载起算，结束时定格 */
+const pageMountTime = ref(Date.now());
+const now = ref(Date.now());
+let timerInterval: ReturnType<typeof setInterval> | null = null;
+
+const elapsedSeconds = computed(() => {
+  const end = completed.value ? pageMountTime.value : now.value;
+  const elapsed = Math.max(0, Math.floor((end - pageMountTime.value) / 1000));
+  const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const s = String(elapsed % 60).padStart(2, '0');
+  return `${m}:${s}`;
+});
+
+/* 当前进度：已出现的最大题号 */
+const currentQuestionNumber = computed(() =>
+  messages.value.reduce((max, m) => Math.max(max, m.questionNumber || 0), 0)
+);
 
 let sseClient: SseClient | null = null;
 
 onMounted(() => {
+  timerInterval = setInterval(() => { now.value = Date.now(); }, 1000);
   startInterview();
 });
 
 onUnmounted(() => {
   sseClient?.disconnect();
+  if (timerInterval) clearInterval(timerInterval);
 });
 
-/* 美化：新消息到达自动滚动到底部（纯体验优化，不改变交互逻辑） */
+/* 新消息到达自动滚动到底部 */
 watch(() => messages.value.length, async () => {
   await nextTick();
   if (messagesEl.value) {
@@ -38,42 +69,68 @@ watch(() => messages.value.length, async () => {
   }
 });
 
+/* 解析题目事件负载：JSON {questionNumber, question, isFollowUp}，兼容旧版纯文本 */
+function parseQuestionPayload(data: string): { question: string; questionNumber?: number; isFollowUp?: boolean } {
+  try {
+    const obj = JSON.parse(data);
+    if (obj && typeof obj.question === 'string') {
+      return {
+        question: obj.question,
+        questionNumber: typeof obj.questionNumber === 'number' ? obj.questionNumber : undefined,
+        isFollowUp: obj.isFollowUp === true
+      };
+    }
+  } catch { /* 非 JSON，按纯文本处理 */ }
+  return { question: data };
+}
+
 function handleSseEvent(event: SseEvent) {
   switch (event.event) {
     case 'CONNECTED':
       sessionId.value = event.data;
       connected.value = true;
       break;
-    case 'QUESTION':
+    case 'QUESTION': {
+      const { question, questionNumber } = parseQuestionPayload(event.data);
       messages.value.push({
         role: 'assistant',
-        content: event.data,
+        content: question,
+        questionNumber,
         timestamp: new Date().toLocaleTimeString()
       });
       thinking.value = false;
       break;
+    }
     case 'THINKING':
       thinking.value = true;
       break;
-    case 'WAITING_CODE':
+    case 'WAITING_CODE': {
       // 进入编码环节：展示题目并跳转编码页
+      const { question, questionNumber } = parseQuestionPayload(event.data);
       messages.value.push({
         role: 'assistant',
-        content: '【编程题】' + event.data,
+        content: question,
+        questionNumber,
+        isCoding: true,
         timestamp: new Date().toLocaleTimeString()
       });
       setTimeout(() => {
-        router.push({ name: 'CodingRoom', query: { sessionId: sessionId.value, question: event.data } });
+        router.push({ name: 'CodingRoom', query: { sessionId: sessionId.value, question } });
       }, 800);
       break;
-    case 'FOLLOW_UP':
+    }
+    case 'FOLLOW_UP': {
+      const { question, questionNumber, isFollowUp } = parseQuestionPayload(event.data);
       messages.value.push({
         role: 'assistant',
-        content: event.data,
+        content: question,
+        questionNumber,
+        isFollowUp,
         timestamp: new Date().toLocaleTimeString()
       });
       thinking.value = false;
       break;
+    }
     case 'CODE_SUBMITTED':
       messages.value.push({
         role: 'assistant',
@@ -81,12 +138,16 @@ function handleSseEvent(event: SseEvent) {
         timestamp: new Date().toLocaleTimeString()
       });
       break;
-    case 'COMPLETE':
+    case 'COMPLETE': {
       completed.value = true;
       thinking.value = false;
+      if (event.data && event.data.trim()) {
+        completeReason.value = event.data.trim();
+      }
       break;
+    }
     case 'REPORT_READY':
-      router.push(`/report/${sessionId.value}`);
+      reportReady.value = true;
       break;
     case 'ERROR':
       error.value = event.data;
@@ -105,15 +166,16 @@ function startInterview() {
   if (existingSessionId) {
     sessionId.value = existingSessionId;
     connected.value = true;
-    // 如果有传入的题目，作为第一条消息
-    if (incomingQuestion) {
-      messages.value.push({
-        role: 'assistant',
-        content: incomingQuestion,
-        timestamp: new Date().toLocaleTimeString()
-      });
-    }
-    loadHistory(existingSessionId);
+    loadHistory(existingSessionId).finally(() => {
+      // 历史恢复后再追加传入的当前题目，避免被历史覆盖
+      if (incomingQuestion) {
+        messages.value.push({
+          role: 'assistant',
+          content: incomingQuestion,
+          timestamp: new Date().toLocaleTimeString()
+        });
+      }
+    });
     sseClient = new SseClient();
     sseClient.connectGet(`/api/interviews/${existingSessionId}/stream`, handleSseEvent, () => {
       error.value = '连接失败';
@@ -137,7 +199,7 @@ function startInterview() {
   });
 }
 
-// 重连时拉取历史轮次，恢复对话上下文
+// 重连时拉取历史轮次，恢复对话上下文（面试进行中每轮已增量落库，刷新不丢历史）
 async function loadHistory(id: string) {
   try {
     const res = await fetch(`/api/interviews/sessions/${id}/rounds`, {
@@ -145,12 +207,14 @@ async function loadHistory(id: string) {
     });
     const json = await res.json();
     const rounds: any[] = json.data || [];
-    const history: { role: 'assistant' | 'user'; content: string; timestamp: string }[] = [];
+    const history: Message[] = [];
     for (const r of rounds) {
       if (r.question) {
         history.push({
           role: 'assistant',
           content: r.question,
+          questionNumber: r.roundNumber,
+          isFollowUp: r.isFollowup === true,
           timestamp: new Date(r.createdAt || Date.now()).toLocaleTimeString()
         });
       }
@@ -158,7 +222,13 @@ async function loadHistory(id: string) {
         history.push({ role: 'user', content: r.candidateAnswer, timestamp: '' });
       }
     }
-    if (history.length > 0) messages.value = history;
+    if (history.length > 0) {
+      messages.value = history;
+      await nextTick();
+      if (messagesEl.value) {
+        messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
+      }
+    }
   } catch {
     // 历史加载失败不影响面试流
   }
@@ -192,7 +262,7 @@ function goBack() {
   router.push('/home');
 }
 
-/* 美化：结束面试前增加确认，防止误触（确认后逻辑不变） */
+/* 结束面试前增加确认，防止误触（确认后逻辑不变） */
 function confirmEndInterview() {
   dialog.warning({
     title: '结束面试',
@@ -211,32 +281,50 @@ function endInterview() {
   });
   completed.value = true;
 }
+
+function goToReport() {
+  if (sessionId.value) {
+    router.push(`/report/${sessionId.value}`);
+  }
+}
 </script>
 
 <template>
-  <!-- 美化：修复高度 bug（原 calc(100vh-64px) 减去了不存在的全局 header），改为 h-screen -->
   <div class="flex flex-col h-screen bg-slate-50">
-    <!-- Header -->
-    <!-- 美化：毛玻璃顶栏 + 状态指示灯 -->
-    <header class="bg-white/80 backdrop-blur border-b border-slate-200/70 px-4 sm:px-6 py-3 flex items-center justify-between shrink-0">
-      <div class="flex items-center gap-4">
-        <button @click="goBack"
-          class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors duration-200">
-          ← 返回
-        </button>
-        <h2 class="text-lg font-bold text-slate-800 tracking-tight whitespace-nowrap">面试进行中</h2>
-      </div>
-      <div class="flex items-center gap-3">
-        <!-- 美化：连接状态呼吸灯 -->
-        <span v-if="connected && !completed" class="flex items-center gap-1.5 text-sm text-green-600">
-          <span class="relative flex w-2 h-2">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-          </span>
-          已连接
-        </span>
-        <span v-if="thinking" class="text-sm text-amber-600">思考中...</span>
-        <n-button v-if="!completed" size="small" type="error" secondary @click="confirmEndInterview">结束面试</n-button>
+    <!-- Header：毛玻璃顶栏 + 计时器 + 进度 + 状态 -->
+    <header class="bg-white/80 backdrop-blur border-b border-slate-200/70 px-4 sm:px-6 py-3 shrink-0">
+      <div class="max-w-4xl mx-auto">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-4 min-w-0">
+            <button @click="goBack"
+              class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors duration-200">
+              ← 返回
+            </button>
+            <h2 class="text-lg font-bold text-slate-800 tracking-tight whitespace-nowrap">面试进行中</h2>
+            <span class="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg tabular-nums shrink-0">
+              ⏱ {{ elapsedSeconds }}
+            </span>
+            <span v-if="currentQuestionNumber > 0" class="text-xs font-medium text-slate-500 shrink-0 hidden sm:inline">
+              已完成 {{ currentQuestionNumber }} 题
+            </span>
+          </div>
+          <div class="flex items-center gap-3 shrink-0">
+            <span v-if="connected && !completed" class="flex items-center gap-1.5 text-sm text-green-600">
+              <span class="relative flex w-2 h-2">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+              </span>
+              已连接
+            </span>
+            <span v-if="thinking" class="text-sm text-amber-600">思考中...</span>
+            <n-button v-if="!completed" size="small" type="error" secondary @click="confirmEndInterview">结束面试</n-button>
+          </div>
+        </div>
+        <!-- 进度条 -->
+        <div class="mt-3 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-500 ease-out"
+            :style="{ width: completed ? '100%' : '0%' }"></div>
+        </div>
       </div>
     </header>
 
@@ -246,8 +334,11 @@ function endInterview() {
         {{ connected ? '等待第一道题目...' : '连接中...' }}
       </div>
       <div class="max-w-4xl mx-auto space-y-4">
-        <ChatBubble v-for="(msg, i) in messages" :key="i" :role="msg.role" :content="msg.content" :timestamp="msg.timestamp" />
-        <!-- 美化：思考中气泡 -->
+        <ChatBubble v-for="(msg, i) in messages" :key="i" :role="msg.role" :content="msg.content"
+          :timestamp="msg.timestamp" :question-number="msg.questionNumber" :is-follow-up="msg.isFollowUp"
+          :is-coding="msg.isCoding" />
+
+        <!-- 思考中气泡 -->
         <div v-if="thinking" class="flex justify-start">
           <div class="bg-white border border-slate-200/80 rounded-2xl rounded-bl-md px-4 py-3 shadow-card">
             <div class="flex gap-1">
@@ -257,13 +348,27 @@ function endInterview() {
             </div>
           </div>
         </div>
+
         <n-alert v-if="error" type="error" :bordered="false" class="rounded-xl">{{ error }}</n-alert>
-        <n-alert v-if="completed" type="success" :bordered="false" class="rounded-xl">面试已结束，报告生成中...</n-alert>
+
+        <!-- 面试完成卡片 -->
+        <div v-if="completed" class="mt-4 text-center">
+          <div class="inline-block bg-white border border-blue-100 rounded-2xl px-7 py-5 shadow-card">
+            <div class="text-blue-700 text-lg font-bold mb-1">🎉 面试已结束</div>
+            <p class="text-sm text-slate-500">{{ completeReason }}</p>
+            <div v-if="!reportReady" class="mt-3 flex items-center justify-center gap-2 text-sm text-slate-400">
+              <span class="w-3.5 h-3.5 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin"></span>
+              正在生成面试报告，请稍候…
+            </div>
+            <n-button v-else type="primary" class="mt-3" @click="goToReport">
+              查看面试报告 →
+            </n-button>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Input -->
-    <!-- 美化：输入区悬浮卡片化 -->
     <div class="bg-white/80 backdrop-blur border-t border-slate-200/70 px-4 sm:px-6 py-4 shrink-0">
       <div class="flex gap-3 max-w-4xl mx-auto items-end">
         <n-input v-model:value="answer" type="textarea" :disabled="!connected || completed"

@@ -25,6 +25,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -42,13 +43,14 @@ public class InterviewService {
     private final SseRegistry sseRegistry;
     private final ObjectMapper objectMapper;
     private final ReportGenerator reportGenerator;
+    private final RoundPersistenceService roundPersistenceService;
     private final Executor interviewExecutor;
 
     public InterviewService(InterviewSessionMapper sessionMapper, InterviewRoundMapper roundMapper,
                             ResumeService resumeService, JdService jdService,
                             PlanGenerator planGenerator, InterviewGraphBuilder graphBuilder,
                             AskQuestionTool askQuestionTool, SseRegistry sseRegistry, ObjectMapper objectMapper,
-                            ReportGenerator reportGenerator,
+                            ReportGenerator reportGenerator, RoundPersistenceService roundPersistenceService,
                             @Qualifier("interviewExecutor") Executor interviewExecutor) {
         this.sessionMapper = sessionMapper;
         this.roundMapper = roundMapper;
@@ -60,6 +62,7 @@ public class InterviewService {
         this.sseRegistry = sseRegistry;
         this.objectMapper = objectMapper;
         this.reportGenerator = reportGenerator;
+        this.roundPersistenceService = roundPersistenceService;
         this.interviewExecutor = interviewExecutor;
     }
 
@@ -141,7 +144,7 @@ public class InterviewService {
                     log.info("面试图已挂起，等待代码提交: sessionId={}", sessionId);
                     sessionMapper.updateStatus(sessionId, "waiting_code");
                     String question = finalState.getCurrentQuestion() != null ? finalState.getCurrentQuestion() : "编码题已出，请提交代码";
-                    sseRegistry.sendEvent(sessionId, "WAITING_CODE", question);
+                    sseRegistry.sendEvent(sessionId, "WAITING_CODE", buildQuestionPayload(finalState.getCurrentRound() + 1, question, false));
                     return;
                 }
 
@@ -245,7 +248,7 @@ public class InterviewService {
             if (finalState.getCodingHint() != null && !finalState.getCodingHint().isBlank()) {
                 message = finalState.getCodingHint();
             }
-            sseRegistry.sendEvent(sessionId, "WAITING_CODE", message);
+            sseRegistry.sendEvent(sessionId, "WAITING_CODE", buildQuestionPayload(finalState.getCurrentRound() + 1, message, false));
             return;
         }
 
@@ -345,23 +348,21 @@ public class InterviewService {
         return roundMapper.findBySessionId(sessionId);
     }
 
-    private void saveRounds(String sessionId, InterviewState state) {
-        for (InterviewState.RoundRecord record : state.getRounds()) {
-            InterviewRound round = new InterviewRound();
-            round.setSessionId(sessionId);
-            round.setRoundNumber(record.getRoundNumber());
-            round.setAgentName(record.getAgentName());
-            round.setTopic(record.getTopic());
-            round.setQuestion(record.getQuestion());
-            round.setCandidateAnswer(record.getAnswer());
-            round.setIsFollowup(record.isFollowup());
-            round.setFollowupTarget(record.getFollowupTarget());
-            try {
-                round.setEvaluation(objectMapper.writeValueAsString(record.getEvaluation()));
-            } catch (JsonProcessingException e) {
-                log.warn("序列化评估结果失败", e);
-            }
-            roundMapper.insert(round);
+    private String buildQuestionPayload(int questionNumber, String question, boolean isFollowUp) {
+        try {
+            Map<String, Object> payload = new java.util.HashMap<>();
+            payload.put("questionNumber", questionNumber);
+            payload.put("question", question);
+            payload.put("isFollowUp", isFollowUp);
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            log.warn("题目事件序列化失败，回退纯文本", e);
+            return question;
         }
+    }
+
+    private void saveRounds(String sessionId, InterviewState state) {
+        // 面试结束时整体重建：EvaluateNode 已逐轮增量保存，此处删除后重插保证最终一致
+        roundPersistenceService.rebuildRounds(sessionId, state.getRounds());
     }
 }
