@@ -29,8 +29,11 @@ public class AskNode implements Function<InterviewState, InterviewState> {
         // 推送思考中状态
         askQuestionTool.sendThinking(state.getSessionId());
 
-        // 等待回答（阻塞），题号 = 当前轮次 + 1（本轮的题目序号）
-        String answer = askQuestionTool.askAndWait(state.getSessionId(), question, "QUESTION", state.getCurrentRound() + 1);
+        // 等待回答（阻塞）。题号 = 非追问轮计数 + 1：追问轮不占题号，编程题轮占题号，保证题号连续
+        int questionNumber = (int) state.getRounds().stream()
+                .filter(r -> !r.isFollowup())
+                .count() + 1;
+        String answer = askQuestionTool.askAndWait(state.getSessionId(), question, "QUESTION", questionNumber);
         state.setCurrentAnswer(answer);
 
         // 记录轮次

@@ -83,6 +83,10 @@ public class AskQuestionTool {
             log.warn("等待回答超时或被中断: sessionId={}", sessionId);
             pendingQuestions.remove(sessionId);
             sessionMapper.updateCurrentQuestion(sessionId, null);
+            // 面试已被手动结束：直接终止流程，不再把超时占位作为回答继续评估
+            if (terminatedSessions.contains(sessionId)) {
+                throw new InterviewTerminatedException("面试已终止: " + sessionId);
+            }
             return "【超时未回答】";
         }
     }

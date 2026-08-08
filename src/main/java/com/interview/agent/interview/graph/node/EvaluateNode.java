@@ -109,7 +109,23 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
 
         // 记录到 rounds
         RoundRecord record = new RoundRecord();
-        record.setRoundNumber(state.getCurrentRound());
+        // 追问轮沿用所属主轮题号（最近一条非追问记录的题号）；
+        // 与 SSE 事件题号保持一致且连续（编程题占一个题号）
+        if (state.isFollowUpRound()) {
+            record.setRoundNumber(state.getRounds().stream()
+                    .filter(r -> !r.isFollowup())
+                    .reduce((first, second) -> second)
+                    .map(InterviewState.RoundRecord::getRoundNumber)
+                    .orElse(state.getCurrentRound()));
+        } else {
+            long distinctMainRounds = state.getRounds().stream()
+                    .filter(r -> !r.isFollowup())
+                    .map(InterviewState.RoundRecord::getRoundNumber)
+                    .distinct()
+                    .count();
+            boolean codingRetry = "coding".equals(state.getCurrentAgent()) && state.getCodingRetryCount() > 0;
+            record.setRoundNumber((int) distinctMainRounds + (codingRetry ? 0 : 1));
+        }
         record.setAgentName(state.getCurrentAgent());
         record.setTopic(state.getCurrentQuestion() != null ? state.getCurrentQuestion().substring(0, Math.min(50, state.getCurrentQuestion().length())) : "");
         record.setQuestion(state.getCurrentQuestion());
@@ -118,7 +134,7 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         // 追问轮标记
         if (state.isFollowUpRound()) {
             record.setFollowup(true);
-            record.setFollowupTarget((long) state.getCurrentRound());
+            record.setFollowupTarget((long) record.getRoundNumber());
         }
         state.getRounds().add(record);
 

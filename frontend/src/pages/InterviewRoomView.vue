@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NInput, NButton, NAlert, useDialog } from 'naive-ui';
 import { SseClient, type SseEvent } from '../utils/sse';
+import { getSession } from '../api/interview';
 import ChatBubble from '../components/ChatBubble.vue';
 
 interface Message {
@@ -51,6 +52,61 @@ const currentQuestionNumber = computed(() =>
 
 let sseClient: SseClient | null = null;
 
+/* 轮询兜底：SSE 事件被静默吞掉时（连接看似存活但事件丢失），
+   通过周期查询会话状态恢复下一题/状态流转，避免面试卡死 */
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function pollSessionStatus() {
+  if (!sessionId.value) return;
+  try {
+    const res = await getSession(sessionId.value);
+    const s = res.data.data;
+    if (!s) return;
+
+    if (s.status === 'waiting_code') {
+      stopPolling();
+      if (s.currentQuestion) {
+        router.push({ name: 'CodingRoom', query: { sessionId: sessionId.value, question: s.currentQuestion } });
+      }
+      return;
+    }
+    if (s.status === 'completed' || s.status === 'interrupted') {
+      // 面试已结束：停止轮询；若已生成报告则展示报告入口，否则提示已结束
+      stopPolling();
+      completed.value = true;
+      thinking.value = false;
+      if (s.report) reportReady.value = true;
+      if (s.status === 'interrupted') completeReason.value = '面试已结束';
+      return;
+    }
+
+    // 进行中：检测是否有新题目就绪但 SSE 事件丢失
+    if (s.currentQuestion) {
+      const lastAssistant = [...messages.value].reverse().find(m => m.role === 'assistant');
+      if (!lastAssistant || lastAssistant.content !== s.currentQuestion) {
+        messages.value.push({
+          role: 'assistant',
+          content: s.currentQuestion,
+          questionNumber: currentQuestionNumber.value + 1,
+          timestamp: new Date().toLocaleTimeString()
+        });
+        thinking.value = false;
+      }
+    }
+  } catch {
+    /* 单次轮询失败静默，等待下一轮 */
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(pollSessionStatus, 5000);
+}
+
 onMounted(() => {
   timerInterval = setInterval(() => { now.value = Date.now(); }, 1000);
   startInterview();
@@ -58,6 +114,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   sseClient?.disconnect();
+  stopPolling();
   if (timerInterval) clearInterval(timerInterval);
 });
 
@@ -89,6 +146,7 @@ function handleSseEvent(event: SseEvent) {
     case 'CONNECTED':
       sessionId.value = event.data;
       connected.value = true;
+      startPolling();
       break;
     case 'QUESTION': {
       const { question, questionNumber } = parseQuestionPayload(event.data);
@@ -166,6 +224,7 @@ function startInterview() {
   if (existingSessionId) {
     sessionId.value = existingSessionId;
     connected.value = true;
+    startPolling();
     loadHistory(existingSessionId).finally(() => {
       // 历史恢复后再追加传入的当前题目，避免被历史覆盖
       if (incomingQuestion) {

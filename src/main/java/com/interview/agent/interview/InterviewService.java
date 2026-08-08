@@ -317,6 +317,19 @@ public class InterviewService {
 
         askQuestionTool.cancel(sessionId);
         sessionMapper.updateStatus(sessionId, "interrupted");
+
+        // 手动结束也生成报告（已评估轮次均增量落库，可直接汇总），
+        // 避免前端“报告生成中”无限等待；无轮次数据时跳过
+        try {
+            long roundCount = roundMapper.countBySessionId(sessionId);
+            if (roundCount > 0) {
+                reportGenerator.generateReport(sessionId);
+                sseRegistry.sendEvent(sessionId, "REPORT_READY", "报告已生成");
+            }
+        } catch (Exception e) {
+            log.warn("手动结束生成报告失败: sessionId={}", sessionId, e);
+        }
+
         sseRegistry.sendEvent(sessionId, "COMPLETE", "面试已手动结束");
         sseRegistry.complete(sessionId);
     }
