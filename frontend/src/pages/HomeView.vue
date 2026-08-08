@@ -26,6 +26,8 @@ function handleLogout() {
             class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200">职位管理</router-link>
           <router-link to="/interview/start"
             class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200">开始面试</router-link>
+          <router-link to="/sessions"
+            class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200">面试记录</router-link>
           <span class="hidden sm:inline text-sm text-slate-400 mx-1">|</span>
           <span class="hidden sm:inline text-sm text-slate-600">{{ auth.user?.username }}</span>
           <n-button size="small" type="error" secondary class="ml-2" @click="handleLogout">退出</n-button>
@@ -41,7 +43,7 @@ function handleLogout() {
       </div>
 
       <!-- 美化：快捷入口卡片，hover 上浮 + 阴影加深 -->
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <router-link to="/resumes"
           class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold mb-3">简</div>
@@ -59,6 +61,12 @@ function handleLogout() {
           <div class="w-10 h-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center text-lg font-bold mb-3">面</div>
           <h3 class="font-semibold text-slate-800 group-hover:text-violet-600 transition-colors duration-200">开始面试</h3>
           <p class="text-sm text-slate-500 mt-1">多 Agent 协同出题，含编程实战环节</p>
+        </router-link>
+        <router-link to="/sessions"
+          class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
+          <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg font-bold mb-3">记</div>
+          <h3 class="font-semibold text-slate-800 group-hover:text-amber-600 transition-colors duration-200">面试记录</h3>
+          <p class="text-sm text-slate-500 mt-1">历史面试与报告，一键回顾查看</p>
         </router-link>
       </div>
     </main>
