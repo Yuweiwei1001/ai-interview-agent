@@ -1,6 +1,7 @@
 package com.interview.agent.interview.agent.tool;
 
 import com.interview.agent.common.exception.InterviewTerminatedException;
+import com.interview.agent.interview.InterviewSessionMapper;
 import com.interview.agent.sse.SseRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,9 +18,11 @@ public class AskQuestionTool {
     private final ConcurrentHashMap<String, CompletableFuture<String>> pendingQuestions = new ConcurrentHashMap<>();
     private final Set<String> terminatedSessions = ConcurrentHashMap.newKeySet();
     private final SseRegistry sseRegistry;
+    private final InterviewSessionMapper sessionMapper;
 
-    public AskQuestionTool(SseRegistry sseRegistry) {
+    public AskQuestionTool(SseRegistry sseRegistry, InterviewSessionMapper sessionMapper) {
         this.sseRegistry = sseRegistry;
+        this.sessionMapper = sessionMapper;
     }
 
     /**
@@ -46,15 +49,26 @@ public class AskQuestionTool {
         CompletableFuture<String> future = new CompletableFuture<>();
         pendingQuestions.put(sessionId, future);
 
+        // 持久化当前题目：SSE 事件丢失时前端可轮询恢复（避免提交后卡死无下一题）
+        try {
+            sessionMapper.updateCurrentQuestion(sessionId, question);
+        } catch (Exception e) {
+            log.warn("持久化当前题目失败: sessionId={}", sessionId, e);
+        }
+
         // SSE 推送题目
         sseRegistry.sendEvent(sessionId, eventName, question);
 
         try {
             // 阻塞等待回答，最多30分钟
-            return future.get(30, TimeUnit.MINUTES);
+            String answer = future.get(30, TimeUnit.MINUTES);
+            // 回答已收到，清除当前题目标记
+            sessionMapper.updateCurrentQuestion(sessionId, null);
+            return answer;
         } catch (Exception e) {
             log.warn("等待回答超时或被中断: sessionId={}", sessionId);
             pendingQuestions.remove(sessionId);
+            sessionMapper.updateCurrentQuestion(sessionId, null);
             return "【超时未回答】";
         }
     }

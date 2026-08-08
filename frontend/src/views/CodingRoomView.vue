@@ -54,8 +54,12 @@ async function pollSessionStatus() {
       sseStatus.value = '';
       retryHint.value = retryHint.value || '代码未通过评估，请修改后重新提交';
       stopPolling();
+    } else if (status === 'in_progress' && sseStatus.value && res.data.data?.currentQuestion) {
+      // 评估通过且下一题已就绪，但 QUESTION 事件未到达（SSE 断流）：带题目回到面试间继续作答
+      stopPolling();
+      router.push({ name: 'InterviewRoom', query: { sessionId, question: res.data.data.currentQuestion } });
     } else if (status === 'in_progress' && sseStatus.value && pollCount >= 10) {
-      // 约 40 秒仍在评估：提示可重进（进度由 checkpoint 保存，不会丢失）
+      // 约 40 秒仍在评估且无下一题信息：提示可重进（进度由 checkpoint 保存，不会丢失）
       errorMsg.value = '等待响应时间较长，可能是连接中断。可返回首页重新进入面试，进度不会丢失。';
     }
   } catch {

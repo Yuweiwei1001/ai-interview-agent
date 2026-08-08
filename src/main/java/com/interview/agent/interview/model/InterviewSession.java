@@ -12,6 +12,7 @@ public class InterviewSession {
     private String persona;
     private Integer durationMinutes;
     private String status; // planned/in_progress/waiting_code/completed/interrupted/cancelled
+    private String currentQuestion; // 当前待回答题目（断线恢复用，回答后清空）
     private String interviewPlan;
     private BigDecimal overallScore;
     private String report;
@@ -37,6 +38,8 @@ public class InterviewSession {
     public void setDurationMinutes(Integer durationMinutes) { this.durationMinutes = durationMinutes; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getCurrentQuestion() { return currentQuestion; }
+    public void setCurrentQuestion(String currentQuestion) { this.currentQuestion = currentQuestion; }
     public String getInterviewPlan() { return interviewPlan; }
     public void setInterviewPlan(String interviewPlan) { this.interviewPlan = interviewPlan; }
     public BigDecimal getOverallScore() { return overallScore; }

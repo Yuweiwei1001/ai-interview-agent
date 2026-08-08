@@ -16,6 +16,7 @@ export interface InterviewSession {
   persona: string;
   durationMinutes: number;
   status: string;
+  currentQuestion?: string | null;
   overallScore: number | null;
   report: string | null;
   startedAt: string;
