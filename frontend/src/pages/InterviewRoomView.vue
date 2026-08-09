@@ -88,6 +88,8 @@ async function pollSessionStatus() {
     }
 
     // 进行中：检测是否有新题目就绪但 SSE 事件丢失
+    // 若当前有流式输出进行中（QUESTION_DELTA 正在推送），跳过轮询避免重复推送
+    if (isStreaming.value) return;
     if (s.currentQuestion) {
       const lastAssistant = [...messages.value].reverse().find(m => m.role === 'assistant');
       if (!lastAssistant || lastAssistant.content !== s.currentQuestion) {
@@ -195,6 +197,9 @@ function handleSseEvent(event: SseEvent) {
       break;
     }
     case 'FOLLOW_UP': {
+      // 打字机结束：清空流式内容
+      streamingContent.value = '';
+      isStreaming.value = false;
       const { question, questionNumber, isFollowUp } = parseQuestionPayload(event.data);
       messages.value.push({
         role: 'assistant',

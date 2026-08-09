@@ -61,10 +61,8 @@ public class AskQuestionTool {
             log.warn("持久化当前题目失败: sessionId={}", sessionId, e);
         }
 
-        // 先逐块推送 QUESTION_DELTA（打字机效果），再推送完整 QUESTION 落定
-        if (!"FOLLOW_UP".equals(eventName)) {
-            streamQuestionTyping(sessionId, question);
-        }
+        // 先逐块推送 QUESTION_DELTA（打字机效果），再推送完整 QUESTION/FOLLOW_UP 落定
+        streamQuestionTyping(sessionId, question);
 
         // SSE 推送题目（JSON：题号 + 题目 + 是否追问，前端据此展示“第N题”徽标）
         try {
