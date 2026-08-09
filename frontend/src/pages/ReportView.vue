@@ -3,6 +3,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NProgress, NSpin, NAlert, NButton } from 'naive-ui';
 import { getReport, type InterviewReport } from '../api/interview';
+import request from '../utils/request';
 
 const route = useRoute();
 const router = useRouter();
@@ -65,6 +66,22 @@ const dimensionLabels: Record<string, string> = {
   project: '项目经验',
   coding: '编码能力',
   communication: '沟通表达'
+};
+/* 下载报告（axios 自动携带 JWT token，避免浏览器直接导航被拦截） */
+const downloadReport = async () => {
+  try {
+    const res = await request.get(`/api/interviews/sessions/${route.params.id}/report.pdf`, {
+      responseType: 'blob'
+    });
+    const url = URL.createObjectURL(new Blob([res.data]));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `interview-report-${route.params.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e: any) {
+    error.value = e.response?.data?.msg || '下载失败';
+  }
 };
 </script>
 
@@ -231,9 +248,7 @@ const dimensionLabels: Record<string, string> = {
 
         <!-- 下载报告 -->
         <div class="text-center mb-6">
-          <a :href="`/api/interviews/sessions/${route.params.id}/report.pdf`" download class="inline-block">
-            <n-button type="primary" size="large" tag="span">下载报告</n-button>
-          </a>
+          <n-button type="primary" size="large" @click="downloadReport">下载报告</n-button>
         </div>
       </template>
     </div>

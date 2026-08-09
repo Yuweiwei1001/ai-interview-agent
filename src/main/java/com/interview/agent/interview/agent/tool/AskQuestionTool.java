@@ -61,6 +61,11 @@ public class AskQuestionTool {
             log.warn("持久化当前题目失败: sessionId={}", sessionId, e);
         }
 
+        // 先逐块推送 QUESTION_DELTA（打字机效果），再推送完整 QUESTION 落定
+        if (!"FOLLOW_UP".equals(eventName)) {
+            streamQuestionTyping(sessionId, question);
+        }
+
         // SSE 推送题目（JSON：题号 + 题目 + 是否追问，前端据此展示“第N题”徽标）
         try {
             Map<String, Object> payload = new java.util.HashMap<>();
@@ -126,5 +131,41 @@ public class AskQuestionTool {
      */
     public void sendThinking(String sessionId) {
         sseRegistry.sendEvent(sessionId, "THINKING", "思考中...");
+    }
+
+    /** 流式输出题目：按标点/空格切块，每隔 30ms 推送一个 QUESTION_DELTA 块 */
+    private void streamQuestionTyping(String sessionId, String question) {
+        if (question == null || question.isBlank()) return;
+        for (String chunk : chunkForTyping(question)) {
+            try {
+                java.util.Map<String, Object> payload = new java.util.HashMap<>();
+                payload.put("delta", chunk);
+                String json = objectMapper.writeValueAsString(payload);
+                sseRegistry.sendEvent(sessionId, "QUESTION_DELTA", json);
+                Thread.sleep(30);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Exception e) {
+                log.warn("QUESTION_DELTA 推送失败", e);
+            }
+        }
+    }
+
+    /** 按 3-5 字符切块，在标点后优先断开，模拟自然打字节奏 */
+    private java.util.List<String> chunkForTyping(String text) {
+        java.util.List<String> chunks = new java.util.ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            sb.append(c);
+            boolean punctuation = "，。！？、；：,.!?;: \n".indexOf(c) >= 0;
+            if (sb.length() >= 4 || (punctuation && sb.length() >= 1)) {
+                chunks.add(sb.toString());
+                sb.setLength(0);
+            }
+        }
+        if (sb.length() > 0) chunks.add(sb.toString());
+        return chunks;
     }
 }

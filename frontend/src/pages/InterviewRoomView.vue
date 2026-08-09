@@ -28,6 +28,9 @@ const thinking = ref(false);
 const error = ref('');
 const reportReady = ref(false);
 const completeReason = ref('面试已结束');
+/* 流式题目（打字机效果）：QUESTION_DELTA 逐块累积，完整 QUESTION 到达后清空 */
+const streamingContent = ref('');
+const isStreaming = ref(false);
 
 /* 消息容器引用，用于新消息自动滚动到底部 */
 const messagesEl = ref<HTMLElement>();
@@ -148,7 +151,21 @@ function handleSseEvent(event: SseEvent) {
       connected.value = true;
       startPolling();
       break;
+    case 'QUESTION_DELTA': {
+      // 打字机增量：逐块追加到流式内容
+      try {
+        const { delta } = JSON.parse(event.data);
+        if (delta) {
+          streamingContent.value += delta;
+          isStreaming.value = true;
+        }
+      } catch { /* 忽略解析失败 */ }
+      break;
+    }
     case 'QUESTION': {
+      // 打字机结束：清空流式内容，收起流式区域
+      streamingContent.value = '';
+      isStreaming.value = false;
       const { question, questionNumber } = parseQuestionPayload(event.data);
       messages.value.push({
         role: 'assistant',
@@ -408,6 +425,13 @@ function goToReport() {
           </div>
         </div>
 
+        <!-- 流式题目（打字机效果）：QUESTION_DELTA 逐块累积，光标闪烁 -->
+        <div v-if="isStreaming" class="flex justify-start">
+          <div class="bg-white border border-slate-200/80 rounded-2xl rounded-bl-md px-4 py-3 shadow-card">
+            <div class="text-sm leading-relaxed whitespace-pre-wrap break-words">{{ streamingContent }}<span class="inline-block w-0.5 h-4 bg-blue-500 align-middle ml-0.5 typing-cursor" /></div>
+          </div>
+        </div>
+
         <n-alert v-if="error" type="error" :bordered="false" class="rounded-xl">{{ error }}</n-alert>
 
         <!-- 面试完成卡片 -->
@@ -443,3 +467,14 @@ function goToReport() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.typing-cursor {
+  animation: cursor-blink 0.8s infinite ease-in-out;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+</style>

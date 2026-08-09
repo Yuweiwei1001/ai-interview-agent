@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { marked } from 'marked';
 
 const props = defineProps<{
   role: 'assistant' | 'user';
@@ -13,13 +14,9 @@ const props = defineProps<{
   isCoding?: boolean;
 }>();
 
-/* 简单 markdown 渲染：**加粗**、`行内代码`（转义 HTML 防注入） */
+/* 完整 Markdown 渲染（marked 库），支持加粗/行内代码/代码块/引用/列表/标题等 */
 const renderedContent = computed(() => {
-  const esc = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return esc(props.content)
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code class="bg-slate-100 text-blue-700 px-1.5 py-0.5 rounded-md text-xs font-mono">$1</code>');
+  return marked.parse(props.content, { breaks: true, gfm: true }) as string;
 });
 </script>
 
