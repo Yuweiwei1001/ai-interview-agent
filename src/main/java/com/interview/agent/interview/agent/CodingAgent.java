@@ -54,9 +54,11 @@ public class CodingAgent {
         if (askedTopics != null && !askedTopics.isEmpty()) {
             sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
         }
-        sb.append("请出一道纯算法题（LeetCode 风格），包含完整题目描述、输入输出示例、以及考察要点。\n");
-        sb.append("要求：候选人需写出完整可运行代码，不得仅口头描述。\n");
-        sb.append("禁止出系统设计、架构设计、分布式系统等非算法类题目。\n");
+        sb.append("请出一道纯算法题（LeetCode 风格），包含完整题目描述、输入输出示例、数据范围约束。\n");
+        sb.append("要求：\n");
+        sb.append("1. 候选人需写出完整可运行代码，不得仅口头描述。\n");
+        sb.append("2. 【严禁】题目中不得包含考察要点、解题思路、算法提示、时间复杂度/空间复杂度要求、参考答案等任何泄露解题方向的内容——这些是面试官内部评估标准，候选人看到会直接获得答案线索。\n");
+        sb.append("3. 禁止出系统设计、架构设计、分布式系统等非算法类题目。\n");
         sb.append("直接输出题目内容，不需要额外说明。");
         return sb.toString();
     }

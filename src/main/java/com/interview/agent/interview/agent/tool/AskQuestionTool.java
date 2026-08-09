@@ -54,15 +54,14 @@ public class AskQuestionTool {
         CompletableFuture<String> future = new CompletableFuture<>();
         pendingQuestions.put(sessionId, future);
 
-        // 持久化当前题目：SSE 事件丢失时前端可轮询恢复（避免提交后卡死无下一题）
+        // 先流式推送题目（打字机效果），再持久化当前题目，最后推送完整 QUESTION 落定。
+        // 持久化放在流式之后：避免轮询在流式期间读到 currentQuestion 而重复推送完整题目
+        streamQuestionTyping(sessionId, question);
         try {
             sessionMapper.updateCurrentQuestion(sessionId, question);
         } catch (Exception e) {
             log.warn("持久化当前题目失败: sessionId={}", sessionId, e);
         }
-
-        // 先逐块推送 QUESTION_DELTA（打字机效果），再推送完整 QUESTION/FOLLOW_UP 落定
-        streamQuestionTyping(sessionId, question);
 
         // SSE 推送题目（JSON：题号 + 题目 + 是否追问，前端据此展示“第N题”徽标）
         try {
