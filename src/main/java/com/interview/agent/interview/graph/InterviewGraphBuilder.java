@@ -19,8 +19,6 @@ import com.interview.agent.coding.testcase.TestCaseService;
 import com.interview.agent.interview.agent.AnswerEvaluator;
 import com.interview.agent.interview.RoundPersistenceService;
 import com.interview.agent.interview.agent.CodingAgent;
-import com.interview.agent.interview.agent.ContextWindowManager;
-import com.interview.agent.interview.agent.CoordinatorAgent;
 import com.interview.agent.interview.agent.FollowUpGenerator;
 import com.interview.agent.interview.agent.ProjectAgent;
 import com.interview.agent.interview.agent.QuestionDeduper;
@@ -63,7 +61,7 @@ import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
  *
  * <p>关键点：
  * <ul>
- *   <li>coordinator 节点由 {@link CoordinatorAgent}（qwen-turbo）路由到 technical/project/coding Agent 出题</li>
+ *   <li>coordinator 节点按确定性固定编排路由（八股→项目→编程收尾），各 Agent 内部由 LLM 自由出题</li>
  *   <li>{@link StateGraph} 全部 key 使用 {@link ReplaceStrategy}（keyStrategyFactory）</li>
  *   <li>节点用 {@code node_async} 包装，条件边用 {@code edge_async} 包装</li>
  *   <li>领域状态 {@link InterviewState} 整体作为单一 key 存入 OverAllState，
@@ -88,7 +86,6 @@ public class InterviewGraphBuilder {
     private final PlanGenerator planGenerator;
     private final AskQuestionTool askQuestionTool;
     private final DataSource dataSource;
-    private final CoordinatorAgent coordinatorAgent;
     private final TechnicalAgent technicalAgent;
     private final ProjectAgent projectAgent;
     private final CodingAgent codingAgent;
@@ -96,7 +93,6 @@ public class InterviewGraphBuilder {
     private final BehaviorPolicyFactory policyFactory;
     private final QuestionDeduper questionDeduper;
     private final FollowUpGenerator followUpGenerator;
-    private final ContextWindowManager contextWindowManager;
     private final KnowledgePointService knowledgePointService;
     private final CodeEvaluationEngine codeEvaluationEngine;
     private final TestCaseService testCaseService;
@@ -105,17 +101,16 @@ public class InterviewGraphBuilder {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
-                                 CoordinatorAgent coordinatorAgent, TechnicalAgent technicalAgent,
+                                 TechnicalAgent technicalAgent,
                                  ProjectAgent projectAgent, CodingAgent codingAgent, SpeakerAgent speakerAgent,
                                  BehaviorPolicyFactory policyFactory, QuestionDeduper questionDeduper,
-                                 FollowUpGenerator followUpGenerator, ContextWindowManager contextWindowManager,
+                                 FollowUpGenerator followUpGenerator,
                                  KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
                                  TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
                                  RoundPersistenceService roundPersistenceService) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
-        this.coordinatorAgent = coordinatorAgent;
         this.technicalAgent = technicalAgent;
         this.projectAgent = projectAgent;
         this.codingAgent = codingAgent;
@@ -123,7 +118,6 @@ public class InterviewGraphBuilder {
         this.policyFactory = policyFactory;
         this.questionDeduper = questionDeduper;
         this.followUpGenerator = followUpGenerator;
-        this.contextWindowManager = contextWindowManager;
         this.knowledgePointService = knowledgePointService;
         this.codeEvaluationEngine = codeEvaluationEngine;
         this.testCaseService = testCaseService;
@@ -148,7 +142,7 @@ public class InterviewGraphBuilder {
     public CompiledGraph buildGraph() throws Exception {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
-        CoordinatorNode coordinatorNode = new CoordinatorNode(coordinatorAgent, technicalAgent, projectAgent, codingAgent, questionDeduper, contextWindowManager);
+        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
                 codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService);
@@ -241,12 +235,16 @@ public class InterviewGraphBuilder {
         graph.addConditionalEdges("evaluate",
                 edge_async(state -> {
                     InterviewState interviewState = toInterviewState(state);
-                    // Coding 环节：waitingForCode 由 EvaluateNode 统一决策（唯一事实来源）
+                    // Coding 环节：waitingForCode 由 EvaluateNode 统一决策（唯一事实来源）；
+                    // 重试优先于结束判断（新编排下编程题恒为最后一题，currentRound 已达 maxRounds）
                     if ("coding".equals(interviewState.getCurrentAgent())) {
+                        if (interviewState.isWaitingForCode()) {
+                            return "codingRetryWait";
+                        }
                         if (shouldEnd(interviewState)) {
                             return "end";
                         }
-                        return interviewState.isWaitingForCode() ? "codingRetryWait" : "coordinator";
+                        return "coordinator";
                     }
                     if (shouldEnd(interviewState)) {
                         return "end";

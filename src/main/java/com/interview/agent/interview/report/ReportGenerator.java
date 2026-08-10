@@ -103,9 +103,19 @@ public class ReportGenerator {
                 case "technical" -> dimScores.setTechnical(score);
                 case "project" -> dimScores.setProject(score);
                 case "coding" -> dimScores.setCoding(score);
-                default -> dimScores.setCommunication(score);
+                default -> { /* 未知 agent 不再映射到任何维度 */ }
             }
         });
+        // 沟通表达维度：聚合各轮评估中的 communicationScore（文本题由 LLM 单独评估表达质量）
+        double communicationAvg = rounds.stream()
+                .map(r -> extractCommunication(r.getEvaluation()))
+                .filter(c -> c != null)
+                .mapToDouble(BigDecimal::doubleValue)
+                .average()
+                .orElse(0);
+        if (communicationAvg > 0) {
+            dimScores.setCommunication(BigDecimal.valueOf(Math.round(communicationAvg)));
+        }
         report.setDimensionScores(dimScores);
 
         // 优势与不足
@@ -163,6 +173,21 @@ public class ReportGenerator {
             log.warn("解析评估分数失败", e);
         }
         return BigDecimal.ZERO;
+    }
+
+    /** 提取单轮沟通表达分；旧数据/编程题无此字段时返回 null（不参与聚合） */
+    private BigDecimal extractCommunication(String evaluationJson) {
+        if (evaluationJson == null) return null;
+        try {
+            Map map = objectMapper.readValue(evaluationJson, Map.class);
+            Object communication = map.get("communicationScore");
+            if (communication instanceof Number) {
+                return BigDecimal.valueOf(((Number) communication).doubleValue());
+            }
+        } catch (Exception e) {
+            log.warn("解析沟通表达分失败", e);
+        }
+        return null;
     }
 
     private String extractFeedback(String evaluationJson) {

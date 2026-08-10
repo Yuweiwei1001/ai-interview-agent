@@ -60,8 +60,10 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
             AnswerEvaluator.EvaluationResult textEval = answerEvaluator.evaluate(state.getCurrentQuestion(), answer);
             baseScore = textEval.score();
             llmSummary = textEval.summary();
-            log.info("EvaluateNode: 文本题评分完成, round={}, sessionId={}, score={}",
-                    state.getCurrentRound(), state.getSessionId(), baseScore);
+            // 沟通表达分随评估落库，报告阶段聚合为 communication 维度（此前从未写入导致报告恒为 0）
+            evaluation.put("communicationScore", textEval.communication());
+            log.info("EvaluateNode: 文本题评分完成, round={}, sessionId={}, score={}, communication={}",
+                    state.getCurrentRound(), state.getSessionId(), baseScore, textEval.communication());
         }
         
         // 根据人格调整评分
@@ -159,8 +161,9 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
 
     /**
      * Coding 环节代码评估后的重试决策：
-     * 达标 / 人格不给重试机会 / 已达重试上限 / 已是最后一轮 → 不挂起，流向 coordinator 或 END；
+     * 达标 / 人格不给重试机会 / 已达重试上限 → 不挂起，流向 coordinator 或 END；
      * 否则置 waitingForCode=true 并生成提示，图将在 codingRetryWait 前挂起，等待重新提交代码。
+     * 注：新编排下编程题恒为最后一题，不再用「最后一轮不重试」拦截（重试不消耗新题，由 maxRetry 封顶）。
      */
     private void decideCodingRetry(InterviewState state, BehaviorPolicy policy, int score, boolean degraded) {
         int passThreshold = switch (policy.evaluationStrictness()) {
@@ -177,7 +180,7 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
             case "gentle" -> 2;
             default -> 1;
         };
-        if (state.getCodingRetryCount() >= maxRetry || state.getCurrentRound() >= state.getMaxRounds()) {
+        if (state.getCodingRetryCount() >= maxRetry) {
             log.info("Coding 不重试，直接切题: score={}, retryCount={}, round={}/{}, sessionId={}",
                     score, state.getCodingRetryCount(), state.getCurrentRound(), state.getMaxRounds(), state.getSessionId());
             return;

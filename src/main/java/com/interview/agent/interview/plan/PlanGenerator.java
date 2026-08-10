@@ -56,9 +56,9 @@ public class PlanGenerator {
         sb.append("- weakPointPriority: 薄弱点优先考察列表\n");
         sb.append("- estimatedTotalRounds: 预计总轮次数\n");
         sb.append("硬性规则：\n");
-        sb.append("1. coding 的 estimatedRounds 必须为 1（全场仅 1 道上机编程题）。\n");
+        sb.append("1. coding 的 estimatedRounds 必须为 1（全场仅 1 道上机编程题），且固定安排在面试最后一题。\n");
         sb.append("2. estimatedTotalRounds 按面试时长估算，约每 5 分钟 1 题，取值 5-8 之间。\n");
-        sb.append("3. technical 与 project 均分剩余轮次，coding 的 topics 仅限数据结构与算法。\n");
+        sb.append("3. 环节顺序固定为：先 technical（八股基础）再 project（项目经验），两者均分除 coding 外的剩余轮次；coding 的 topics 仅限数据结构与算法。\n");
         return sb.toString();
     }
 
@@ -70,7 +70,7 @@ public class PlanGenerator {
         int projRounds = remaining / 2;
 
         InterviewPlan plan = new InterviewPlan();
-        plan.setOverallStrategy("默认面试计划：技术 " + techRounds + " 轮 + 项目 " + projRounds + " 轮 + 编码 1 轮");
+        plan.setOverallStrategy("默认面试计划：先技术八股 " + techRounds + " 轮，再项目 " + projRounds + " 轮，最后编码 1 轮");
         plan.setWeakPointPriority(List.of("基础知识", "项目经验", "编码能力"));
 
         Map<String, InterviewPlan.AgentAssignment> assignments = new HashMap<>();
