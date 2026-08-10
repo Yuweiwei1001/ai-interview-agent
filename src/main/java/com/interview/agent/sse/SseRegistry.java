@@ -27,17 +27,20 @@ public class SseRegistry {
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
         emitters.put(sessionId, emitter);
 
+        // 注意：回调必须只移除"自己这个 emitter"（remove(key, value) 语义）。
+        // 否则页面跳转重连后旧连接的异步回调会把新注册的 emitter 误删，
+        // 导致重连后 QUESTION_DELTA 等事件全部被丢弃（编程题返回后流式输出消失的根因）
         emitter.onCompletion(() -> {
             log.info("SSE 连接完成: {}", sessionId);
-            emitters.remove(sessionId);
+            emitters.remove(sessionId, emitter);
         });
         emitter.onTimeout(() -> {
             log.warn("SSE 连接超时: {}", sessionId);
-            emitters.remove(sessionId);
+            emitters.remove(sessionId, emitter);
         });
         emitter.onError(e -> {
             log.warn("SSE 连接错误: {}", sessionId, e);
-            emitters.remove(sessionId);
+            emitters.remove(sessionId, emitter);
         });
 
         return emitter;
@@ -54,11 +57,11 @@ public class SseRegistry {
             emitter.send(event);
         } catch (IOException e) {
             log.warn("SSE 发送失败: {}", sessionId, e);
-            emitters.remove(sessionId);
+            emitters.remove(sessionId, emitter);
         } catch (IllegalStateException e) {
             // emitter 已完成（complete/超时后容器已收尾），发送会抛 IllegalStateException
             log.warn("SSE 连接已关闭，事件发送失败: sessionId={}", sessionId, e);
-            emitters.remove(sessionId);
+            emitters.remove(sessionId, emitter);
         }
     }
 
