@@ -23,7 +23,9 @@ public class KnowledgePointService {
     }
 
     /**
-     * 从评估结果中更新知识点
+     * 从评估结果中更新知识点（Mem0 风格 UPDATE 语义：新证据与历史加权融合，而非直接覆盖）。
+     * 置信度 = 历史置信度按考察次数加上新分的移动平均，status 由融合后置信度判定，
+     * 因此“上次薄弱、这次答好”会逐步修正旧结论。
      */
     public void updateFromEvaluation(List<String> knowledgePoints, Map<String, Object> evaluation) {
         Long userId = BaseContext.getCurrentId();
@@ -47,12 +49,26 @@ public class KnowledgePointService {
             KnowledgePoint point = new KnowledgePoint();
             point.setUserId(userId);
             point.setTopic(topic);
-            point.setStatus(score >= 60 ? "mastered" : "weak");
-            point.setConfidence(BigDecimal.valueOf(Math.min(100, score + 10)));
+
+            // UPDATE 语义：已有记录则按历史考察次数加权融合置信度
+            KnowledgePoint existing = mapper.findByUserIdAndTopic(userId, topic);
+            int mergedConfidence;
+            if (existing != null && existing.getAssessmentCount() != null && existing.getConfidence() != null) {
+                int count = Math.max(1, existing.getAssessmentCount());
+                int oldConfidence = existing.getConfidence().intValue();
+                mergedConfidence = (int) Math.round((oldConfidence * (double) count + score) / (count + 1));
+            } else {
+                mergedConfidence = score;
+            }
+
+            point.setStatus(mergedConfidence >= 60 ? "mastered" : "weak");
+            point.setConfidence(BigDecimal.valueOf(mergedConfidence));
             point.setLastAssessed(LocalDateTime.now());
             point.setAssessmentCount(1);
             point.setVerified(false);
             mapper.upsert(point);
+            log.info("知识点更新: topic={}, score={}, mergedConfidence={}, status={}, sessionId 上下文 user={}",
+                    topic, score, mergedConfidence, point.getStatus(), userId);
         }
     }
 

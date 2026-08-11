@@ -5,6 +5,8 @@ import com.interview.agent.interview.agent.ProjectAgent;
 import com.interview.agent.interview.agent.QuestionDeduper;
 import com.interview.agent.interview.agent.TechnicalAgent;
 import com.interview.agent.interview.graph.InterviewState;
+import com.interview.agent.memory.KnowledgePoint;
+import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +19,7 @@ import java.util.stream.Collectors;
  *
  * <p>环节顺序：八股（technical）→ 项目（project）→ 编程（coding，恒为最后一题）。
  * 总轮次以 maxRounds 为准：编程固定占 1 轮，剩余轮次技术（向上取整）与项目均分。
- * 环节内部的具体题目仍由各 Agent 的 LLM 自由发挥。
+ * 环节内部的具体题目仍由各 Agent 的 LLM 自由发挥，并注入候选人历史薄弱知识点引导优先考察。
  */
 public class CoordinatorNode implements Function<InterviewState, InterviewState> {
     private static final Logger log = LoggerFactory.getLogger(CoordinatorNode.class);
@@ -25,14 +27,16 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
     private final ProjectAgent projectAgent;
     private final CodingAgent codingAgent;
     private final QuestionDeduper questionDeduper;
+    private final KnowledgePointService knowledgePointService;
 
     public CoordinatorNode(TechnicalAgent technicalAgent,
                           ProjectAgent projectAgent, CodingAgent codingAgent,
-                          QuestionDeduper questionDeduper) {
+                          QuestionDeduper questionDeduper, KnowledgePointService knowledgePointService) {
         this.technicalAgent = technicalAgent;
         this.projectAgent = projectAgent;
         this.codingAgent = codingAgent;
         this.questionDeduper = questionDeduper;
+        this.knowledgePointService = knowledgePointService;
     }
 
     @Override
@@ -91,11 +95,13 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
                 .collect(Collectors.toList());
 
         String persona = state.getPersona() != null ? state.getPersona() : "neutral";
-        String question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona);
+        // 长期记忆读取：取候选人历史薄弱知识点，注入出题 prompt 引导优先考察（闭环的读取端）
+        List<String> weakPoints = loadWeakPoints();
+        String question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona, weakPoints);
         int retryCount = 0;
         while (questionDeduper.isDuplicate(question, existingQuestions) && retryCount < 3) {
             log.warn("题目重复，重新生成: retry={}, agent={}", retryCount, nextAgent);
-            question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona);
+            question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona, weakPoints);
             retryCount++;
         }
 
@@ -140,10 +146,28 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
         };
     }
 
-    private String generateQuestion(String nextAgent, String topic, String difficulty, String resumeText, List<String> askedTopics, String persona) {
+    /** 读取历史薄弱知识点（失败不阻断编排，降级为无记忆模式） */
+    private List<String> loadWeakPoints() {
+        try {
+            List<String> weak = knowledgePointService.getWeakPoints(5).stream()
+                    .map(KnowledgePoint::getTopic)
+                    .filter(t -> t != null && !t.isBlank())
+                    .collect(Collectors.toList());
+            if (!weak.isEmpty()) {
+                log.info("长期记忆注入出题: weakPoints={}", weak);
+            }
+            return weak;
+        } catch (Exception e) {
+            log.warn("薄弱知识点读取失败，降级为无记忆出题", e);
+            return List.of();
+        }
+    }
+
+    private String generateQuestion(String nextAgent, String topic, String difficulty, String resumeText,
+                                    List<String> askedTopics, String persona, List<String> weakPoints) {
         return switch (nextAgent) {
-            case "technical" -> technicalAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona);
-            case "project" -> projectAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona);
+            case "technical" -> technicalAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints);
+            case "project" -> projectAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints);
             case "coding" -> codingAgent.generateQuestion(topic, difficulty, resumeText, askedTopics);
             default -> "请介绍一下你的技术背景和项目经验。";
         };

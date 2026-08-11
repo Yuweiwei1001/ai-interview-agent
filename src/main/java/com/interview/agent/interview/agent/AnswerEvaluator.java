@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * 文本题回答评估器：由 LLM 对回答质量进行真实评分。
  * 替代历史的长度启发式（answer.length()*2），避免分数失真导致面试被提前终结。
@@ -22,8 +25,11 @@ public class AnswerEvaluator {
         this.chatClient = builder.build();
     }
 
-    /** 评估结果：score 0-100（内容质量），communication 0-100（表达清晰度），summary 简要点评 */
-    public record EvaluationResult(int score, int communication, String summary) {}
+    /**
+     * 评估结果：score 0-100（内容质量），communication 0-100（表达清晰度），
+     * knowledgePoints 本题实际考察的具体知识点，summary 简要点评
+     */
+    public record EvaluationResult(int score, int communication, List<String> knowledgePoints, String summary) {}
 
     /**
      * 评估回答并返回评分与点评；LLM 调用失败时降级为参考分 60（不影响流程推进）。
@@ -34,7 +40,7 @@ public class AnswerEvaluator {
                     String content = chatClient.prompt().user(buildPrompt(question, answer)).call().content();
                     return parse(content);
                 },
-                () -> new EvaluationResult(60, 60, "评估服务暂不可用，按参考分计入"));
+                () -> new EvaluationResult(60, 60, List.of(), "评估服务暂不可用，按参考分计入"));
     }
 
     private String buildPrompt(String question, String answer) {
@@ -50,7 +56,10 @@ public class AnswerEvaluator {
                 + "评分标准：90-100 优秀（准确、深入、有实践见解）；70-89 良好（基本正确但深度或广度不足）；"
                 + "50-69 一般（部分正确、有明显缺漏）；0-49 不达标（错误较多或答非所问）。\n"
                 + "同时评估沟通表达（communication）：表达是否清晰有条理、是否紧扣问题、是否易于理解，与内容正确性无关。\n"
-                + "只输出 JSON，不要输出任何其他内容：{\"score\": <0-100的整数>, \"communication\": <0-100的整数>, \"summary\": \"<60字以内的简要点评>\"}";
+                + "同时提取本题实际考察的具体知识点（knowledgePoints）：针对题目与回答内容提取 1-4 个具体技术概念"
+                + "（如\"HashMap扩容机制\"、\"TCP三次握手\"，而非\"Java\"这类粗粒度词），回答未涉及的不要列。\n"
+                + "只输出 JSON，不要输出任何其他内容：{\"score\": <0-100的整数>, \"communication\": <0-100的整数>, "
+                + "\"knowledgePoints\": [\"<知识点1>\", ...], \"summary\": \"<60字以内的简要点评>\"}";
     }
 
     private EvaluationResult parse(String content) {
@@ -65,8 +74,19 @@ public class AnswerEvaluator {
             int score = Math.max(0, Math.min(100, node.path("score").asInt(60)));
             // LLM 未输出沟通分时以内容分兜底，保证维度分不为 0
             int communication = Math.max(0, Math.min(100, node.path("communication").asInt(score)));
+            List<String> knowledgePoints = new ArrayList<>();
+            JsonNode kpNode = node.path("knowledgePoints");
+            if (kpNode.isArray()) {
+                for (JsonNode kp : kpNode) {
+                    String text = kp.asText("").trim();
+                    if (!text.isBlank() && text.length() <= 30) {
+                        knowledgePoints.add(text);
+                    }
+                    if (knowledgePoints.size() >= 4) break;
+                }
+            }
             String summary = node.path("summary").asText("");
-            return new EvaluationResult(score, communication, summary);
+            return new EvaluationResult(score, communication, knowledgePoints, summary);
         } catch (Exception e) {
             // 解析失败视为本次 LLM 调用失败，交由重试/降级处理
             throw new RuntimeException("LLM 评分结果解析失败", e);
