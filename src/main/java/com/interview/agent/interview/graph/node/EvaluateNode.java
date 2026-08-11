@@ -53,6 +53,7 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         // 基础评估（Coding 环节使用代码评估引擎，文本题由 LLM 真实评分）
         int baseScore;
         String llmSummary = null;
+        List<String> llmKnowledgePoints = List.of();
         if ("coding".equals(state.getCurrentAgent())) {
             baseScore = evaluateCodingCode(state, evaluation);
         } else {
@@ -60,17 +61,22 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
             AnswerEvaluator.EvaluationResult textEval = answerEvaluator.evaluate(state.getCurrentQuestion(), answer);
             baseScore = textEval.score();
             llmSummary = textEval.summary();
+            llmKnowledgePoints = textEval.knowledgePoints();
             // 沟通表达分随评估落库，报告阶段聚合为 communication 维度（此前从未写入导致报告恒为 0）
             evaluation.put("communicationScore", textEval.communication());
-            log.info("EvaluateNode: 文本题评分完成, round={}, sessionId={}, score={}, communication={}",
-                    state.getCurrentRound(), state.getSessionId(), baseScore, textEval.communication());
+            log.info("EvaluateNode: 文本题评分完成, round={}, sessionId={}, score={}, communication={}, knowledgePoints={}",
+                    state.getCurrentRound(), state.getSessionId(), baseScore, textEval.communication(), llmKnowledgePoints);
         }
         
         // 根据人格调整评分
         int score = adjustScore(baseScore, policy);
         state.setCodingScore(score);
         evaluation.put("score", score);
-        evaluation.put("knowledgePoints", extractKnowledgePoints(answer));
+        // 知识点优先用 LLM 从题目+回答提取的具体概念；LLM 未输出时降级为关键词匹配兜底
+        List<String> knowledgePoints = (llmKnowledgePoints != null && !llmKnowledgePoints.isEmpty())
+                ? llmKnowledgePoints
+                : extractKnowledgePoints(answer);
+        evaluation.put("knowledgePoints", knowledgePoints);
         evaluation.put("completeness", score >= 60 ? "good" : "needs_improvement");
         evaluation.put("summary", llmSummary != null && !llmSummary.isBlank()
                 ? llmSummary
@@ -150,8 +156,8 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
 
         // 评估完成后更新知识点
         try {
-            List<String> knowledgePoints = (List<String>) evaluation.get("knowledgePoints");
-            knowledgePointService.updateFromEvaluation(knowledgePoints, evaluation);
+            List<String> pointsForMemory = (List<String>) evaluation.get("knowledgePoints");
+            knowledgePointService.updateFromEvaluation(pointsForMemory, evaluation);
         } catch (Exception e) {
             log.warn("知识点更新失败", e);
         }
@@ -249,6 +255,7 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         }
     }
 
+    /** 关键词匹配兜底：仅在 LLM 未返回知识点时使用（粗粒度，勿作为主路径） */
     private java.util.List<String> extractKnowledgePoints(String answer) {
         java.util.List<String> points = new java.util.ArrayList<>();
         if (answer == null || answer.isBlank()) return points;

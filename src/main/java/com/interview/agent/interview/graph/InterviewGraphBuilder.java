@@ -142,7 +142,7 @@ public class InterviewGraphBuilder {
     public CompiledGraph buildGraph() throws Exception {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
-        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper);
+        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, knowledgePointService);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
                 codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService);

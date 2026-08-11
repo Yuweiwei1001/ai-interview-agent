@@ -19,12 +19,16 @@ public class ProjectAgent {
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics) {
-        return generateQuestion(topic, difficulty, resumeText, askedTopics, "neutral");
+        return generateQuestion(topic, difficulty, resumeText, askedTopics, "neutral", List.of());
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona) {
+        return generateQuestion(topic, difficulty, resumeText, askedTopics, persona, List.of());
+    }
+
+    public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
         return LlmCallWrapper.callWithRetry(() -> {
-            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona);
+            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints);
             String result = chatClient.prompt().user(prompt).call().content();
             if (result == null || result.isBlank()) {
                 throw new RuntimeException("Agent 出题返回空");
@@ -33,7 +37,7 @@ public class ProjectAgent {
         }, () -> fallbackQuestion(topic, difficulty));
     }
 
-    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona) {
+    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一位资深项目面试官，负责考察候选人的项目经验。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
@@ -43,6 +47,10 @@ public class ProjectAgent {
         }
         if (askedTopics != null && !askedTopics.isEmpty()) {
             sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
+        }
+        if (weakPoints != null && !weakPoints.isEmpty()) {
+            sb.append("候选人历史薄弱知识点（长期记忆）：").append(String.join("、", weakPoints)).append("\n");
+            sb.append("若某个薄弱点与本次考察主题相关，优先围绕它出题；不相关则忽略。\n\n");
         }
         sb.append("请出一道项目经验题，要求候选人结合真实项目经历回答。\n");
         sb.append("要求：\n");
