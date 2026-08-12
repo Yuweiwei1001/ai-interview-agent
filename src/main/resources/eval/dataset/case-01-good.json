@@ -1,0 +1,21 @@
+{
+  "caseId": "case-01-good",
+  "description": "强候选人脚本：结构化高质量回答 + 编程题先错后对触发重试路径，验证全流程目标达成（GoalAccuracy）",
+  "resumeText": "张三，3年 Java 后端开发经验。熟练掌握 Java 基础与 JVM 原理，熟悉 Spring Boot、MyBatis 框架；熟悉 MySQL 索引优化与事务隔离级别，熟悉 Redis 缓存设计与分布式锁；参与过高并发订单系统开发，负责下单链路的性能优化，QPS 提升 3 倍；了解消息队列与微服务架构，有良好的数据结构与算法基础。",
+  "jdText": "Java 后端开发工程师。职责：负责核心业务系统后端设计与开发，参与高并发场景性能优化。要求：1、精通 Java，熟悉 JVM 原理与并发编程；2、熟练使用 Spring Boot、MyBatis；3、熟悉 MySQL 索引与事务优化，熟悉 Redis 缓存设计；4、了解消息队列与分布式系统常见问题（缓存穿透、分布式锁等）；5、扎实的数据结构与算法基础。",
+  "direction": "Java后端",
+  "persona": "neutral",
+  "durationMinutes": 15,
+  "answerLevel": "GOOD",
+  "codingSubmissions": [
+    {
+      "code": "import java.util.*;\npublic class Solution {\n    public static void main(String[] args) {\n        System.out.println(\"0\");\n    }\n}\n",
+      "language": "java"
+    },
+    {
+      "code": "import java.util.*;\npublic class Solution {\n    public static void main(String[] args) {\n        Scanner sc = new Scanner(System.in);\n        while (sc.hasNextLine()) { System.out.println(sc.nextLine()); }\n    }\n}\n",
+      "language": "java"
+    }
+  ],
+  "timeoutMinutes": 25
+}

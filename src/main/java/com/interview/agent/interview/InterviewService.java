@@ -89,8 +89,14 @@ public class InterviewService {
      * 启动面试（SSE 长连接）
      */
     public SseEmitter startInterview(InterviewStartDTO dto) {
+        return startInterview(dto, UUID.randomUUID().toString());
+    }
+
+    /**
+     * 启动面试（预置 sessionId，供评测模块驱动与追踪全流程）
+     */
+    public SseEmitter startInterview(InterviewStartDTO dto, String sessionId) {
         Long userId = BaseContext.getCurrentId();
-        String sessionId = UUID.randomUUID().toString();
 
         // 知识库归属校验（不存在/无权限直接拒绝，不创建会话）
         if (dto.getKnowledgeBaseId() != null) {
