@@ -23,7 +23,7 @@ public class PlanGenerator {
     }
 
     public InterviewPlan generatePlan(String resumeText, String jdText, String direction, String persona, int durationMinutes) {
-        return LlmCallWrapper.callWithRetry(() -> {
+        return LlmCallWrapper.callWithRetry("plan", () -> {
             String prompt = buildPrompt(resumeText, jdText, direction, persona, durationMinutes);
             InterviewPlan plan = chatClient.prompt()
                     .user(prompt)

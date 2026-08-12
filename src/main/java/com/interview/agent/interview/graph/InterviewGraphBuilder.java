@@ -34,6 +34,7 @@ import com.interview.agent.interview.plan.PlanGenerator;
 import com.interview.agent.interview.policy.BehaviorPolicyFactory;
 import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePointService;
+import com.interview.agent.observability.LlmTraceContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -154,51 +155,51 @@ public class InterviewGraphBuilder {
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());
 
-        graph.addNode("plan", node_async((NodeAction) state -> {
+        graph.addNode("plan", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             InterviewState updated = planNode.apply(interviewState);
             return Map.of(STATE_KEY, updated);
-        }));
-        graph.addNode("coordinator", node_async((NodeAction) state -> {
+        })));
+        graph.addNode("coordinator", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             InterviewState updated = coordinatorNode.apply(interviewState);
             return Map.of(STATE_KEY, updated);
-        }));
-        graph.addNode("ask", node_async((NodeAction) state -> {
+        })));
+        graph.addNode("ask", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             InterviewState updated = askNode.apply(interviewState);
             return Map.of(STATE_KEY, updated);
-        }));
-        graph.addNode("speaker", node_async((NodeAction) state -> {
+        })));
+        graph.addNode("speaker", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             // Phase 1: 文字面试直接透传；Phase 2 数字人启用语音合成
             String spoken = speakerAgent.speak(interviewState.getCurrentQuestion());
             log.info("SpeakerNode: phase={}, 输出文本长度={}", interviewState.getPhase(), spoken.length());
             return Map.of(STATE_KEY, interviewState);
-        }));
-        graph.addNode("evaluate", node_async((NodeAction) state -> {
+        })));
+        graph.addNode("evaluate", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             InterviewState updated = evaluateNode.apply(interviewState);
             return Map.of(STATE_KEY, updated);
-        }));
+        })));
 
         graph.addEdge(START, "plan");
         graph.addEdge("plan", "coordinator");
         // codingWait 节点：Coding 环节挂起点，interruptBefore 挂起后等待代码提交
         // 节点实际执行时说明代码已提交，重置 waitingForCode 标志和状态
-        graph.addNode("codingWait", node_async((NodeAction) state -> {
+        graph.addNode("codingWait", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             interviewState.setWaitingForCode(false);
             interviewState.setStatus("in_progress");
             log.info("CodingWait: 代码已提交，继续执行, round={}, sessionId={}",
                     interviewState.getCurrentRound(), interviewState.getSessionId());
             return Map.of(STATE_KEY, interviewState);
-        }));
+        })));
 
         // codingRetryWait 节点：代码不达标时再次挂起，等待修改后的代码。
         // 挂起决策（waitingForCode/hint）已由 EvaluateNode 写入状态；
         // 节点实际执行时说明代码已重新提交，仅重置标志并累计重试次数。
-        graph.addNode("codingRetryWait", node_async((NodeAction) state -> {
+        graph.addNode("codingRetryWait", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             interviewState.setWaitingForCode(false);
             interviewState.setStatus("in_progress");
@@ -206,7 +207,7 @@ public class InterviewGraphBuilder {
             log.info("CodingRetryWait: 修改后代码已提交，继续评估, sessionId={}, retryCount={}",
                     interviewState.getSessionId(), interviewState.getCodingRetryCount());
             return Map.of(STATE_KEY, interviewState);
-        }));
+        })));
 
         // 条件边：coordinator → codingWait（Coding 环节）或 ask（其他环节）
         graph.addConditionalEdges("coordinator",
@@ -227,11 +228,11 @@ public class InterviewGraphBuilder {
 
         // 添加 FollowUp 节点
         FollowUpNode followUpNode = new FollowUpNode(askQuestionTool);
-        graph.addNode("followUp", node_async((NodeAction) state -> {
+        graph.addNode("followUp", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             InterviewState updated = followUpNode.apply(interviewState);
             return Map.of(STATE_KEY, updated);
-        }));
+        })));
 
         // 条件边：结束→END；未结束→回到 coordinator 继续多 Agent 编排；
         // Coding 环节代码评估完成后，按行为策略分流（压力型直接切题 / 温和型给提示重试 / 中性型一次修改机会）
@@ -276,6 +277,22 @@ public class InterviewGraphBuilder {
                 .recursionLimit(50)
                 .interruptBefore("codingWait", "codingRetryWait")
                 .build());
+    }
+
+    /**
+     * 为节点注入 LLM 追踪上下文（sessionId）。
+     * 节点运行在 StateGraph 异步线程池，调用线程的 ThreadLocal 不会自动传播，必须在节点线程内设置。
+     */
+    private NodeAction withTraceContext(NodeAction action) {
+        return state -> {
+            InterviewState interviewState = toInterviewState(state);
+            LlmTraceContextHolder.setSessionId(interviewState.getSessionId());
+            try {
+                return action.apply(state);
+            } finally {
+                LlmTraceContextHolder.clear();
+            }
+        };
     }
 
     /**

@@ -42,7 +42,7 @@ public class AnswerEvaluator {
      * 带知识库参考片段评估：referenceKnowledge 为检索到的权威知识，作为评分事实依据。
      */
     public EvaluationResult evaluate(String question, String answer, String referenceKnowledge) {
-        return LlmCallWrapper.callWithRetry(
+        return LlmCallWrapper.callWithRetry("evaluator",
                 () -> {
                     String content = chatClient.prompt().user(buildPrompt(question, answer, referenceKnowledge)).call().content();
                     return parse(content);

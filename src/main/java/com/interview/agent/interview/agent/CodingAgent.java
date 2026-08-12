@@ -23,7 +23,7 @@ public class CodingAgent {
             "系统设计|架构设计|分布式|微服务|Redis|Kafka|RabbitMQ|RocketMQ|消息队列|限流|熔断|负载均衡|短链|秒杀|缓存设计|数据库设计");
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics) {
-        return LlmCallWrapper.callWithRetry(() -> {
+        return LlmCallWrapper.callWithRetry("coding", () -> {
             String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics);
             String result = chatClient.prompt().user(prompt).call().content();
             if (result == null || result.isBlank()) {

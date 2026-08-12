@@ -102,7 +102,7 @@ public class CodeEvaluationEngine {
     private CodeEvaluationResult evaluateWithLLM(String code, String language, String questionTitle) {
         try {
             String prompt = buildPrompt(code, language, questionTitle);
-            return LlmCallWrapper.callEntity(
+            return LlmCallWrapper.callEntity("code-eval",
                 () -> chatClient.prompt().user(prompt).call().entity(CodeEvaluationResult.class),
                 () -> null
             );

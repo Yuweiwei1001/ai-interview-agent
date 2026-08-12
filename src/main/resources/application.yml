@@ -1,8 +1,12 @@
 spring:
   application:
     name: ai-interview-agent
+  config:
+    import: optional:classpath:application-local.yml
   autoconfigure:
-    exclude: org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      - org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration
   datasource:
     url: jdbc:mysql://localhost:13307/ai_interview?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai
     username: root
@@ -10,10 +14,14 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
   ai:
     dashscope:
-      api-key: ${DASHSCOPE_API_KEY:}
+      api-key: ${DASHSCOPE_API_KEY:change-me}
       chat:
+        observations:
+          log-prompt: true
+          log-completion: true
         options:
-          model: qwen-plus
+          model: qwen3.7-max-2026-05-17
+          enable-thinking: true
       embedding:
         options:
           model: text-embedding-v3
@@ -36,6 +44,14 @@ jwt:
   secret: ${JWT_SECRET:your-jwt-secret-key-at-least-256-bits-change-in-production}
   access-expiration: 7200000
   refresh-expiration: 604800000
+
+observability:
+  cost:
+    # 模型单价（元 / 千 token），按 DashScope 控制台价格配置
+    input-per-1k: 0.0024
+    output-per-1k: 0.0096
+  retention-days: 30
+  prompt-excerpt-length: 500
 
 sandbox:
   docker-host: unix:///var/run/docker.sock

@@ -1,5 +1,7 @@
 package com.interview.agent.common.ai;
 
+import com.interview.agent.observability.LlmTraceContext;
+import com.interview.agent.observability.LlmTraceContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,7 +28,14 @@ public class LlmCallWrapper {
      * 执行 LLM 调用，带超时和重试
      */
     public static <T> T callWithRetry(Callable<T> callable, Supplier<T> fallback) {
-        return callWithRetry(callable, fallback, DEFAULT_TIMEOUT_SECONDS, DEFAULT_RETRY_COUNT);
+        return callWithRetry(null, callable, fallback, DEFAULT_TIMEOUT_SECONDS, DEFAULT_RETRY_COUNT);
+    }
+
+    /**
+     * 执行 LLM 调用，带超时和重试（agent 归因，供 llm_trace 追踪）
+     */
+    public static <T> T callWithRetry(String agent, Callable<T> callable, Supplier<T> fallback) {
+        return callWithRetry(agent, callable, fallback, DEFAULT_TIMEOUT_SECONDS, DEFAULT_RETRY_COUNT);
     }
 
     /**
@@ -34,6 +43,31 @@ public class LlmCallWrapper {
      */
     public static <T> T callWithRetry(Callable<T> callable, Supplier<T> fallback,
                                        long timeoutSeconds, int maxRetries) {
+        return callWithRetry(null, callable, fallback, timeoutSeconds, maxRetries);
+    }
+
+    /**
+     * 执行 LLM 调用，带自定义超时、重试次数与 agent 归因。
+     *
+     * <p>追踪上下文传播：LLM 实际调用发生在临时单线程 executor 上，
+     * 因此在提交前捕获调用线程的上下文快照（含 sessionId），并叠加 agent 后在 callable 内恢复。
+     */
+    public static <T> T callWithRetry(String agent, Callable<T> callable, Supplier<T> fallback,
+                                       long timeoutSeconds, int maxRetries) {
+        LlmTraceContext snapshot = LlmTraceContextHolder.current();
+        if (agent != null) {
+            snapshot = snapshot == null ? new LlmTraceContext(agent, null) : snapshot.withAgent(agent);
+        }
+        final LlmTraceContext traceContext = snapshot;
+        Callable<T> tracedCallable = () -> {
+            LlmTraceContextHolder.set(traceContext);
+            try {
+                return callable.call();
+            } finally {
+                LlmTraceContextHolder.clear();
+            }
+        };
+
         Exception lastException = null;
 
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
@@ -45,7 +79,7 @@ public class LlmCallWrapper {
 
                 ExecutorService executor = Executors.newSingleThreadExecutor();
                 try {
-                    Future<T> future = executor.submit(callable);
+                    Future<T> future = executor.submit(tracedCallable);
                     return future.get(timeoutSeconds, TimeUnit.SECONDS);
                 } finally {
                     executor.shutdownNow();
@@ -72,6 +106,13 @@ public class LlmCallWrapper {
      * 执行 LLM 调用，带超时和重试，返回 entity 类型
      */
     public static <T> T callEntity(Callable<T> callable, Supplier<T> fallback) {
-        return callWithRetry(callable, fallback);
+        return callWithRetry(null, callable, fallback);
+    }
+
+    /**
+     * 执行 LLM 调用，带超时和重试，返回 entity 类型（agent 归因）
+     */
+    public static <T> T callEntity(String agent, Callable<T> callable, Supplier<T> fallback) {
+        return callWithRetry(agent, callable, fallback);
     }
 }
