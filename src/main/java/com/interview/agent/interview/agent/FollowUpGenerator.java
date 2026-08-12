@@ -40,7 +40,7 @@ public class FollowUpGenerator {
                 break;
         }
 
-        return LlmCallWrapper.callWithRetry(() -> {
+        return LlmCallWrapper.callWithRetry("followup", () -> {
             String prompt = buildPrompt(originalQuestion, answer, evaluation, policy);
             return chatClient.prompt().user(prompt).call().content();
         }, () -> fallbackFollowUp(originalQuestion, evaluation));

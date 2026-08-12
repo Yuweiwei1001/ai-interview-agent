@@ -48,6 +48,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!-- Actuator（含 micrometer-observation，LLM 调用可观测性基础） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <!-- DashScope ChatModel -->
         <dependency>
             <groupId>com.alibaba.cloud.ai</groupId>

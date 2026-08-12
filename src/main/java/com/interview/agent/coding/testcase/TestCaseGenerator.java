@@ -36,7 +36,7 @@ public class TestCaseGenerator {
         try {
             String prompt = buildPrompt(questionTitle, code, language, presetCases, presetResult);
 
-            String response = LlmCallWrapper.callWithRetry(() ->
+            String response = LlmCallWrapper.callWithRetry("testcase", () ->
                     chatClient.prompt().user(prompt).call().content(),
                     () -> null
             );

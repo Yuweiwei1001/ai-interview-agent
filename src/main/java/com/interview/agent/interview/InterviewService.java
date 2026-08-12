@@ -13,6 +13,7 @@ import com.interview.agent.interview.plan.PlanGenerator;
 import com.interview.agent.interview.report.ReportGenerator;
 import com.interview.agent.jd.JdService;
 import com.interview.agent.knowledge.KnowledgeService;
+import com.interview.agent.observability.LlmTraceContextHolder;
 import com.interview.agent.resume.ResumeService;
 import com.interview.agent.sse.SseRegistry;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -125,6 +126,8 @@ public class InterviewService {
         CompletableFuture.runAsync(() -> {
             // 异步线程中恢复用户上下文（getById 依赖 ThreadLocal 校验）
             BaseContext.setCurrentId(userId);
+            // LLM 追踪上下文：覆盖本线程内的图外调用（计划生成/报告生成；图内节点自行设置）
+            LlmTraceContextHolder.setSessionId(sessionId);
             try {
                 // 构建初始状态
                 InterviewState initialState = new InterviewState();
@@ -203,6 +206,7 @@ public class InterviewService {
                 sseRegistry.sendError(sessionId, "面试执行失败: " + e.getMessage());
             } finally {
                 BaseContext.removeCurrentId();
+                LlmTraceContextHolder.clear();
             }
         }, interviewExecutor);
 
@@ -224,6 +228,8 @@ public class InterviewService {
                 }
                 userId = session.getUserId();
                 BaseContext.setCurrentId(userId);
+                // LLM 追踪上下文：代码提交恢复链路（图内节点会自行重设）
+                LlmTraceContextHolder.setSessionId(sessionId);
 
                 log.info("恢复 Coding 面试: sessionId={}, language={}", sessionId, language);
 
@@ -243,6 +249,7 @@ public class InterviewService {
                 if (userId != null) {
                     BaseContext.removeCurrentId();
                 }
+                LlmTraceContextHolder.clear();
             }
         }, interviewExecutor);
     }

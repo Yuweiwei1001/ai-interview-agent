@@ -1,0 +1,7 @@
+# 本地密钥配置模板
+# 使用方法：复制本文件为 application-local.yml 并填入真实值（该文件不入库）
+# application.yml 通过 spring.config.import 自动引入 application-local.yml
+spring:
+  ai:
+    dashscope:
+      api-key: 你的-DashScope-API-Key

@@ -31,7 +31,7 @@ public class TechnicalAgent {
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints, String referenceKnowledge) {
-        return LlmCallWrapper.callWithRetry(() -> {
+        return LlmCallWrapper.callWithRetry("technical", () -> {
             String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints, referenceKnowledge);
             String result = chatClient.prompt().user(prompt).call().content();
             if (result == null || result.isBlank()) {
