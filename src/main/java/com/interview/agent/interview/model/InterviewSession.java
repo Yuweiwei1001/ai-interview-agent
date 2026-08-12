@@ -11,6 +11,7 @@ public class InterviewSession {
     private String direction;
     private String persona;
     private Integer durationMinutes;
+    private Long knowledgeBaseId;
     private String status; // planned/in_progress/waiting_code/completed/interrupted/cancelled
     private String currentQuestion; // 当前待回答题目（断线恢复用，回答后清空）
     private String interviewPlan;
@@ -36,6 +37,8 @@ public class InterviewSession {
     public void setPersona(String persona) { this.persona = persona; }
     public Integer getDurationMinutes() { return durationMinutes; }
     public void setDurationMinutes(Integer durationMinutes) { this.durationMinutes = durationMinutes; }
+    public Long getKnowledgeBaseId() { return knowledgeBaseId; }
+    public void setKnowledgeBaseId(Long knowledgeBaseId) { this.knowledgeBaseId = knowledgeBaseId; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public String getCurrentQuestion() { return currentQuestion; }

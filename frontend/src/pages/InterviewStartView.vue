@@ -4,13 +4,16 @@ import { useRouter } from 'vue-router';
 import { NSelect, NInput, NInputNumber, NButton, NAlert, NTag } from 'naive-ui';
 import { getResumes, type Resume } from '../api/resume';
 import { getJds, type Jd } from '../api/jd';
+import { getKbs, type KnowledgeBase } from '../api/knowledge';
 import { createPlan, type InterviewPlan } from '../api/interview';
 
 const router = useRouter();
 const resumes = ref<Resume[]>([]);
 const jds = ref<Jd[]>([]);
+const kbs = ref<KnowledgeBase[]>([]);
 const resumeId = ref<number | null>(null);
 const jdId = ref<number | null>(null);
+const knowledgeBaseId = ref<number | null>(null);
 const direction = ref('');
 const persona = ref('neutral');
 const durationMinutes = ref(30);
@@ -21,6 +24,7 @@ const error = ref('');
 /* 美化：naive-ui 下拉选项映射 */
 const resumeOptions = computed(() => resumes.value.map(r => ({ label: r.fileName, value: r.id })));
 const jdOptions = computed(() => jds.value.map(j => ({ label: j.title, value: j.id })));
+const kbOptions = computed(() => kbs.value.map(k => ({ label: k.name, value: k.id })));
 const personaOptions = [
   { label: '中性', value: 'neutral' },
   { label: '温和', value: 'gentle' },
@@ -29,9 +33,10 @@ const personaOptions = [
 
 onMounted(async () => {
   try {
-    const [res, jdRes] = await Promise.all([getResumes(), getJds()]);
+    const [res, jdRes, kbRes] = await Promise.all([getResumes(), getJds(), getKbs()]);
     resumes.value = res.data.data;
     jds.value = jdRes.data.data;
+    kbs.value = kbRes.data.data;
   } catch {}
 });
 
@@ -61,6 +66,7 @@ function startInterview() {
     query: {
       resumeId: resumeId.value,
       jdId: jdId.value,
+      knowledgeBaseId: knowledgeBaseId.value,
       direction: direction.value,
       persona: persona.value,
       durationMinutes: durationMinutes.value
@@ -89,6 +95,12 @@ function startInterview() {
         <div>
           <label class="block text-sm font-medium text-slate-700 mb-1.5">选择 JD（可选）</label>
           <n-select v-model:value="jdId" :options="jdOptions" clearable placeholder="不选" size="large" />
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1.5">关联知识库（可选）</label>
+          <n-select v-model:value="knowledgeBaseId" :options="kbOptions" clearable
+            placeholder="不选（出题与评估不注入知识库内容）" size="large" />
         </div>
 
         <div>

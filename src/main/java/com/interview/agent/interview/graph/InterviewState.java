@@ -14,6 +14,8 @@ public class InterviewState {
     private String direction;
     private String persona;
     private int durationMinutes;
+    /** 关联知识库 ID（可为 null）：出题/评估时检索注入 */
+    private Long knowledgeBaseId;
     private InterviewPlan plan;
     private int currentRound;
     private int maxRounds = 20;
@@ -60,6 +62,8 @@ public class InterviewState {
     public void setPersona(String persona) { this.persona = persona; }
     public int getDurationMinutes() { return durationMinutes; }
     public void setDurationMinutes(int durationMinutes) { this.durationMinutes = durationMinutes; }
+    public Long getKnowledgeBaseId() { return knowledgeBaseId; }
+    public void setKnowledgeBaseId(Long knowledgeBaseId) { this.knowledgeBaseId = knowledgeBaseId; }
     public InterviewPlan getPlan() { return plan; }
     public void setPlan(InterviewPlan plan) { this.plan = plan; }
     public int getCurrentRound() { return currentRound; }

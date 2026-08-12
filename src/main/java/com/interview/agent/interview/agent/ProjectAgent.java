@@ -27,8 +27,12 @@ public class ProjectAgent {
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
+        return generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints, null);
+    }
+
+    public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints, String referenceKnowledge) {
         return LlmCallWrapper.callWithRetry(() -> {
-            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints);
+            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints, referenceKnowledge);
             String result = chatClient.prompt().user(prompt).call().content();
             if (result == null || result.isBlank()) {
                 throw new RuntimeException("Agent 出题返回空");
@@ -37,7 +41,7 @@ public class ProjectAgent {
         }, () -> fallbackQuestion(topic, difficulty));
     }
 
-    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
+    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints, String referenceKnowledge) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一位资深项目面试官，负责考察候选人的项目经验。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
@@ -51,6 +55,10 @@ public class ProjectAgent {
         if (weakPoints != null && !weakPoints.isEmpty()) {
             sb.append("候选人历史薄弱知识点（长期记忆）：").append(String.join("、", weakPoints)).append("\n");
             sb.append("若某个薄弱点与本次考察主题相关，优先围绕它出题；不相关则忽略。\n\n");
+        }
+        if (referenceKnowledge != null && !referenceKnowledge.isBlank()) {
+            sb.append("参考资料（来自面试官知识库，仅内部参考）：\n").append(referenceKnowledge).append("\n");
+            sb.append("若参考资料与本次考察主题相关，可围绕其中的知识点出题；不相关则忽略，不要暴露参考资料的存在。\n\n");
         }
         sb.append("请出一道项目经验题，要求候选人结合真实项目经历回答。\n");
         sb.append("要求：\n");

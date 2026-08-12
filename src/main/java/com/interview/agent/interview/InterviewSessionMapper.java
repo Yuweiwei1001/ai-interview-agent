@@ -7,7 +7,7 @@ import java.util.List;
 
 @Mapper
 public interface InterviewSessionMapper {
-    @Insert("INSERT INTO interview_session(id, user_id, resume_id, jd_id, direction, persona, duration_minutes, status, interview_plan) VALUES(#{id}, #{userId}, #{resumeId}, #{jdId}, #{direction}, #{persona}, #{durationMinutes}, #{status}, #{interviewPlan})")
+    @Insert("INSERT INTO interview_session(id, user_id, resume_id, jd_id, direction, persona, duration_minutes, knowledge_base_id, status, interview_plan) VALUES(#{id}, #{userId}, #{resumeId}, #{jdId}, #{direction}, #{persona}, #{durationMinutes}, #{knowledgeBaseId}, #{status}, #{interviewPlan})")
     void insert(InterviewSession session);
 
     @Select("SELECT * FROM interview_session WHERE id = #{id}")

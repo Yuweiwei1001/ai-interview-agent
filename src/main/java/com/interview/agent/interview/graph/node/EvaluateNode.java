@@ -10,6 +10,7 @@ import com.interview.agent.interview.graph.InterviewState;
 import com.interview.agent.interview.graph.InterviewState.RoundRecord;
 import com.interview.agent.interview.policy.BehaviorPolicy;
 import com.interview.agent.interview.policy.BehaviorPolicyFactory;
+import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,11 +29,12 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
     private final TestCaseService testCaseService;
     private final AnswerEvaluator answerEvaluator;
     private final RoundPersistenceService roundPersistenceService;
+    private final KnowledgeRetriever knowledgeRetriever;
 
     public EvaluateNode(BehaviorPolicyFactory policyFactory, FollowUpGenerator followUpGenerator,
                         KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
                         TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
-                        RoundPersistenceService roundPersistenceService) {
+                        RoundPersistenceService roundPersistenceService, KnowledgeRetriever knowledgeRetriever) {
         this.policyFactory = policyFactory;
         this.followUpGenerator = followUpGenerator;
         this.knowledgePointService = knowledgePointService;
@@ -40,6 +42,7 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         this.testCaseService = testCaseService;
         this.answerEvaluator = answerEvaluator;
         this.roundPersistenceService = roundPersistenceService;
+        this.knowledgeRetriever = knowledgeRetriever;
     }
 
     @Override
@@ -58,7 +61,10 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
             baseScore = evaluateCodingCode(state, evaluation);
         } else {
             // 历史的长度启发式（answer.length()*2）会让长回答恒定满分，触发面试提前结束，已替换为 LLM 评分
-            AnswerEvaluator.EvaluationResult textEval = answerEvaluator.evaluate(state.getCurrentQuestion(), answer);
+            // 知识库 RAG：按题目+回答检索关联片段，作为评估的事实依据注入（无知识库/无结果时为 null）
+            String referenceKnowledge = knowledgeRetriever.search(
+                    state.getKnowledgeBaseId(), buildEvalQuery(state.getCurrentQuestion(), answer), 3);
+            AnswerEvaluator.EvaluationResult textEval = answerEvaluator.evaluate(state.getCurrentQuestion(), answer, referenceKnowledge);
             baseScore = textEval.score();
             llmSummary = textEval.summary();
             llmKnowledgePoints = textEval.knowledgePoints();
@@ -255,6 +261,16 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         }
     }
 
+    /** 评估检索 query：题目 + 回答前 200 字（兼顾题意与回答中的技术关键词） */
+    private String buildEvalQuery(String question, String answer) {
+        String q = question == null ? "" : question;
+        String a = answer == null ? "" : answer;
+        if (a.length() > 200) {
+            a = a.substring(0, 200);
+        }
+        return (q + "\n" + a).trim();
+    }
+    
     /** 关键词匹配兜底：仅在 LLM 未返回知识点时使用（粗粒度，勿作为主路径） */
     private java.util.List<String> extractKnowledgePoints(String answer) {
         java.util.List<String> points = new java.util.ArrayList<>();

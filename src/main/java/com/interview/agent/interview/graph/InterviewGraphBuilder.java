@@ -32,6 +32,7 @@ import com.interview.agent.interview.graph.node.FollowUpNode;
 import com.interview.agent.interview.graph.node.PlanNode;
 import com.interview.agent.interview.plan.PlanGenerator;
 import com.interview.agent.interview.policy.BehaviorPolicyFactory;
+import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -98,6 +99,7 @@ public class InterviewGraphBuilder {
     private final TestCaseService testCaseService;
     private final AnswerEvaluator answerEvaluator;
     private final RoundPersistenceService roundPersistenceService;
+    private final KnowledgeRetriever knowledgeRetriever;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
@@ -107,7 +109,8 @@ public class InterviewGraphBuilder {
                                  FollowUpGenerator followUpGenerator,
                                  KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
                                  TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
-                                 RoundPersistenceService roundPersistenceService) {
+                                 RoundPersistenceService roundPersistenceService,
+                                 KnowledgeRetriever knowledgeRetriever) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -123,6 +126,7 @@ public class InterviewGraphBuilder {
         this.testCaseService = testCaseService;
         this.answerEvaluator = answerEvaluator;
         this.roundPersistenceService = roundPersistenceService;
+        this.knowledgeRetriever = knowledgeRetriever;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -142,10 +146,10 @@ public class InterviewGraphBuilder {
     public CompiledGraph buildGraph() throws Exception {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
-        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, knowledgePointService);
+        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, knowledgePointService, knowledgeRetriever);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
-                codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService);
+                codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService, knowledgeRetriever);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());

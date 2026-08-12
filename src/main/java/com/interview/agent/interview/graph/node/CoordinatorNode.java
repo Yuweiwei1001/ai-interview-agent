@@ -5,6 +5,7 @@ import com.interview.agent.interview.agent.ProjectAgent;
 import com.interview.agent.interview.agent.QuestionDeduper;
 import com.interview.agent.interview.agent.TechnicalAgent;
 import com.interview.agent.interview.graph.InterviewState;
+import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePoint;
 import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
@@ -28,15 +29,18 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
     private final CodingAgent codingAgent;
     private final QuestionDeduper questionDeduper;
     private final KnowledgePointService knowledgePointService;
+    private final KnowledgeRetriever knowledgeRetriever;
 
     public CoordinatorNode(TechnicalAgent technicalAgent,
                           ProjectAgent projectAgent, CodingAgent codingAgent,
-                          QuestionDeduper questionDeduper, KnowledgePointService knowledgePointService) {
+                          QuestionDeduper questionDeduper, KnowledgePointService knowledgePointService,
+                          KnowledgeRetriever knowledgeRetriever) {
         this.technicalAgent = technicalAgent;
         this.projectAgent = projectAgent;
         this.codingAgent = codingAgent;
         this.questionDeduper = questionDeduper;
         this.knowledgePointService = knowledgePointService;
+        this.knowledgeRetriever = knowledgeRetriever;
     }
 
     @Override
@@ -97,11 +101,13 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
         String persona = state.getPersona() != null ? state.getPersona() : "neutral";
         // 长期记忆读取：取候选人历史薄弱知识点，注入出题 prompt 引导优先考察（闭环的读取端）
         List<String> weakPoints = loadWeakPoints();
-        String question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona, weakPoints);
+        // 知识库 RAG：按本次考察主题检索关联知识片段，注入出题 prompt（无知识库/无结果时为 null）
+        String referenceKnowledge = knowledgeRetriever.search(state.getKnowledgeBaseId(), topic, 3);
+        String question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona, weakPoints, referenceKnowledge);
         int retryCount = 0;
         while (questionDeduper.isDuplicate(question, existingQuestions) && retryCount < 3) {
             log.warn("题目重复，重新生成: retry={}, agent={}", retryCount, nextAgent);
-            question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona, weakPoints);
+            question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona, weakPoints, referenceKnowledge);
             retryCount++;
         }
 
@@ -164,10 +170,11 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
     }
 
     private String generateQuestion(String nextAgent, String topic, String difficulty, String resumeText,
-                                    List<String> askedTopics, String persona, List<String> weakPoints) {
+                                    List<String> askedTopics, String persona, List<String> weakPoints,
+                                    String referenceKnowledge) {
         return switch (nextAgent) {
-            case "technical" -> technicalAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints);
-            case "project" -> projectAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints);
+            case "technical" -> technicalAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints, referenceKnowledge);
+            case "project" -> projectAgent.generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints, referenceKnowledge);
             case "coding" -> codingAgent.generateQuestion(topic, difficulty, resumeText, askedTopics);
             default -> "请介绍一下你的技术背景和项目经验。";
         };
