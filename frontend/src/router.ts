@@ -10,6 +10,7 @@ import InterviewRoomView from './pages/InterviewRoomView.vue';
 import SessionsView from './pages/SessionsView.vue';
 import ObservabilityView from './pages/ObservabilityView.vue';
 import ReportView from './pages/ReportView.vue';
+import EvalView from './pages/EvalView.vue';
 import CodingRoomView from './views/CodingRoomView.vue';
 
 const router = createRouter({
@@ -27,6 +28,7 @@ const router = createRouter({
         { path: '/sessions', name: 'Sessions', component: SessionsView, meta: { requiresAuth: true } },
         { path: '/observability', name: 'Observability', component: ObservabilityView, meta: { requiresAuth: true } },
         { path: '/report/:id', name: 'Report', component: ReportView, meta: { requiresAuth: true } },
+        { path: '/eval', name: 'Eval', component: EvalView, meta: { requiresAuth: true } },
         { path: '/coding', name: 'CodingRoom', component: CodingRoomView, meta: { requiresAuth: true } },
   ]
 });
