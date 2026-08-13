@@ -30,6 +30,11 @@ public class JdController {
         return Result.success(jdService.getById(id));
     }
 
+    @PutMapping("/{id}")
+    public Result<Jd> update(@PathVariable Long id, @Valid @RequestBody JdCreateDTO dto) {
+        return Result.success(jdService.update(id, dto));
+    }
+
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         jdService.delete(id);

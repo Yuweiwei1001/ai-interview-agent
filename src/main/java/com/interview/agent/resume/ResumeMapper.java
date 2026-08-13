@@ -16,6 +16,9 @@ public interface ResumeMapper {
     @Select("SELECT * FROM resume WHERE user_id = #{userId} ORDER BY created_at DESC")
     List<Resume> findByUserId(Long userId);
 
+    @Update("UPDATE resume SET raw_text = #{rawText}, content_hash = #{contentHash}, updated_at = NOW() WHERE id = #{id} AND user_id = #{userId}")
+    int update(Resume resume);
+
     @Delete("DELETE FROM resume WHERE id = #{id} AND user_id = #{userId}")
     int deleteByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 }

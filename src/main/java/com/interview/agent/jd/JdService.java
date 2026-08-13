@@ -41,4 +41,21 @@ public class JdService {
         int affected = jdMapper.deleteByIdAndUserId(id, BaseContext.getCurrentId());
         if (affected == 0) throw new BaseException("JD 不存在或无权删除");
     }
+
+    /**
+     * 编辑 JD（归属校验）
+     */
+    public Jd update(Long id, JdCreateDTO dto) {
+        Long userId = BaseContext.getCurrentId();
+        Jd jd = jdMapper.findById(id);
+        if (jd == null || !jd.getUserId().equals(userId)) {
+            throw new BaseException("JD 不存在或无权修改");
+        }
+        jd.setTitle(dto.getTitle());
+        jd.setRawText(dto.getRawText());
+        jd.setSourceUrl(dto.getSourceUrl());
+        int affected = jdMapper.update(jd);
+        if (affected == 0) throw new BaseException("JD 不存在或无权修改");
+        return jdMapper.findById(id);
+    }
 }

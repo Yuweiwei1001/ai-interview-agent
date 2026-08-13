@@ -35,6 +35,10 @@ export function getResume(id: number) {
   return request.get<{ code: number; msg: string; data: Resume }>(`/api/resumes/${id}`);
 }
 
+export function updateResume(id: number, rawText: string) {
+  return request.put<{ code: number; msg: string; data: Resume }>(`/api/resumes/${id}`, { rawText });
+}
+
 export function deleteResume(id: number) {
   return request.delete<{ code: number; msg: string; data: null }>(`/api/resumes/${id}`);
 }

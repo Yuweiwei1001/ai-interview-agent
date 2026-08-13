@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router';
 import { NSelect, NButton, NAlert, NProgress } from 'naive-ui';
 import CodeEditor from '../components/CodeEditor.vue';
 import { runCode, submitCode, type TestRunResult } from '../api/coding';
-import { getSession } from '../api/interview';
 import { SseClient } from '../utils/sse';
 
 const route = useRoute();
@@ -19,7 +18,6 @@ const passRate = ref<number | null>(null);
 const running = ref(false);
 const submitting = ref(false);
 const question = ref((route.query.question as string) || '编程题');
-const sseStatus = ref('');
 const retryHint = ref('');
 const errorMsg = ref('');
 const questionCollapsed = ref(false);
@@ -43,47 +41,6 @@ function parseQuestionPayload(data: string): { question: string; questionNumber?
   return { question: data };
 }
 
-/* 提交后轮询兜底：SSE 事件若被中间层静默吞掉（曾致提交后永久卡在“评估中”），
-   通过周期查询会话状态保证页面必然流转 */
-let pollTimer: ReturnType<typeof setInterval> | null = null;
-let pollCount = 0;
-
-function stopPolling() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-}
-
-async function pollSessionStatus() {
-  pollCount++;
-  try {
-    const res = await getSession(sessionId);
-    const status = res.data.data?.status;
-    if (status === 'completed') {
-      stopPolling();
-      router.push(`/report/${sessionId}`);
-    } else if (status === 'waiting_code' && sseStatus.value) {
-      // 评估未通过的提示事件未到达：退出“评估中”，允许修改后重新提交
-      sseStatus.value = '';
-      retryHint.value = retryHint.value || '代码未通过评估，请修改后重新提交';
-      stopPolling();
-    } else if (status === 'in_progress' && sseStatus.value && res.data.data?.currentQuestion) {
-      // 评估通过且下一题已就绪，但 QUESTION 事件未到达（SSE 断流）：带题目回到面试间继续作答
-      stopPolling();
-      router.push({ name: 'InterviewRoom', query: { sessionId, question: res.data.data.currentQuestion } });
-    } else if (status === 'in_progress' && sseStatus.value && pollCount >= 10) {
-      // 约 40 秒仍在评估且无下一题信息：提示可重进（进度由 checkpoint 保存，不会丢失）
-      errorMsg.value = '等待响应时间较长，可能是连接中断。可返回首页重新进入面试，进度不会丢失。';
-    }
-  } catch {
-    /* 单次轮询失败静默，等待下一轮 */
-  }
-}
-
-function startPolling() {
-  stopPolling();
-  pollCount = 0;
-  pollTimer = setInterval(pollSessionStatus, 4000);
-}
-
 onMounted(() => {
   if (sessionId) {
     sseClient = new SseClient();
@@ -92,9 +49,7 @@ onMounted(() => {
         case 'WAITING_CODE': {
           // 编码页收到的 WAITING_CODE 只会是「代码未达标，挂起等待重试」的提示
           const { question } = parseQuestionPayload(event.data);
-          stopPolling();
           retryHint.value = question;
-          sseStatus.value = '';
           break;
         }
         case 'QUESTION': {
@@ -112,17 +67,15 @@ onMounted(() => {
           break;
         case 'ERROR':
           errorMsg.value = event.data || '面试流程出错';
-          sseStatus.value = '';
           break;
       }
     }, () => {
       errorMsg.value = 'SSE 连接失败，请返回重进';
-      sseStatus.value = '';
     });
   }
 });
 
-onUnmounted(() => { sseClient?.disconnect(); stopPolling(); });
+onUnmounted(() => { sseClient?.disconnect(); });
 
 async function handleRun() {
   running.value = true;
@@ -148,13 +101,13 @@ async function handleSubmit() {
   output.value = '';
   retryHint.value = '';
   errorMsg.value = '';
-  sseStatus.value = '代码已提交，评估中，请稍候...';
   try {
     await submitCode(sessionId, code.value, language.value, question.value);
-    startPolling();
+    // 提交成功后立即进入报告页：评估与报告在服务端异步生成，
+    // 报告页展示“生成中”并轮询结果，用户可直接离开
+    router.push(`/report/${sessionId}`);
   } catch (e: any) {
     output.value = e.response?.data?.msg || '提交失败';
-    sseStatus.value = '';
   } finally {
     submitting.value = false;
   }
@@ -213,9 +166,6 @@ function goBack() {
       <!-- 结果面板 -->
       <div class="w-full md:w-96 lg:w-[26rem] shrink-0 border-t md:border-t-0 md:border-l border-slate-200/70 bg-white p-4 sm:p-5 md:overflow-y-auto">
         <h3 class="font-bold text-slate-800 mb-4">运行结果</h3>
-
-        <!-- 提交状态提示 -->
-        <n-alert v-if="sseStatus" type="info" :bordered="false" class="rounded-xl mb-4">⏳ {{ sseStatus }}</n-alert>
 
         <!-- 代码未达标的重试提示 -->
         <n-alert v-if="retryHint" type="warning" title="代码未通过评估，请修改后重新提交" :bordered="false" class="rounded-xl mb-4">

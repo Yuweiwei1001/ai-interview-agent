@@ -16,6 +16,9 @@ public interface JdMapper {
     @Select("SELECT * FROM job_description WHERE user_id = #{userId} ORDER BY created_at DESC")
     List<Jd> findByUserId(Long userId);
 
+    @Update("UPDATE job_description SET title = #{title}, raw_text = #{rawText}, source_url = #{sourceUrl}, updated_at = NOW() WHERE id = #{id} AND user_id = #{userId}")
+    int update(Jd jd);
+
     @Delete("DELETE FROM job_description WHERE id = #{id} AND user_id = #{userId}")
     int deleteByIdAndUserId(@Param("id") Long id, @Param("userId") Long userId);
 }

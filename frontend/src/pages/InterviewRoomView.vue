@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { NInput, NButton, NAlert, useDialog } from 'naive-ui';
 import { SseClient, type SseEvent } from '../utils/sse';
 import { getSession } from '../api/interview';
+import { toDate } from '../utils/datetime';
 import ChatBubble from '../components/ChatBubble.vue';
 
 interface Message {
@@ -297,7 +298,7 @@ async function loadHistory(id: string) {
           content: r.question,
           questionNumber: r.roundNumber,
           isFollowUp: r.isFollowup === true,
-          timestamp: new Date(r.createdAt || Date.now()).toLocaleTimeString()
+          timestamp: (toDate(r.createdAt) || new Date()).toLocaleTimeString()
         });
       }
       if (r.candidateAnswer) {

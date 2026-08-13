@@ -90,6 +90,26 @@ public class ResumeService {
         if (affected == 0) throw new BaseException("简历不存在或无权删除");
     }
 
+    /**
+     * 编辑简历文本内容（重算内容哈希，归属校验）
+     */
+    public Resume update(Long id, String rawText) {
+        Long userId = BaseContext.getCurrentId();
+        Resume resume = resumeMapper.findById(id);
+        if (resume == null || !resume.getUserId().equals(userId)) {
+            throw new BaseException("简历不存在或无权修改");
+        }
+        try {
+            resume.setRawText(rawText);
+            resume.setContentHash(sha256(rawText));
+        } catch (Exception e) {
+            throw new BaseException("简历更新失败：" + e.getMessage());
+        }
+        int affected = resumeMapper.update(resume);
+        if (affected == 0) throw new BaseException("简历不存在或无权修改");
+        return resumeMapper.findById(id);
+    }
+
     private String sha256(String text) throws Exception {
         MessageDigest md = MessageDigest.getInstance("SHA-256");
         byte[] hash = md.digest(text.getBytes(StandardCharsets.UTF_8));

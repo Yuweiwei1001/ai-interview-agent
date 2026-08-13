@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { NModal, NEmpty, NSpin, NButton, NInput, useMessage, useDialog } from 'naive-ui';
-import { getJds, deleteJd, createJd, type Jd } from '../api/jd';
+import { getJds, deleteJd, createJd, updateJd, type Jd } from '../api/jd';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -13,6 +13,27 @@ const formTitle = ref('');
 const formRawText = ref('');
 const formSourceUrl = ref('');
 const submitting = ref(false);
+const previewJd = ref<Jd | null>(null);
+
+/* 编辑态：editingId 为 null 表示新建 */
+const editingId = ref<number | null>(null);
+
+function openCreate() {
+  editingId.value = null;
+  formTitle.value = '';
+  formRawText.value = '';
+  formSourceUrl.value = '';
+  showForm.value = true;
+}
+
+function openEdit(jd: Jd) {
+  editingId.value = jd.id;
+  formTitle.value = jd.title;
+  formRawText.value = jd.rawText;
+  formSourceUrl.value = jd.sourceUrl || '';
+  previewJd.value = null;
+  showForm.value = true;
+}
 
 onMounted(() => loadJds());
 
@@ -28,18 +49,24 @@ async function loadJds() {
   }
 }
 
-async function handleCreate() {
+async function handleSubmit() {
   submitting.value = true;
   try {
-    await createJd({ title: formTitle.value, rawText: formRawText.value, sourceUrl: formSourceUrl.value || undefined });
-    message.success('创建成功');
+    const payload = { title: formTitle.value, rawText: formRawText.value, sourceUrl: formSourceUrl.value || undefined };
+    if (editingId.value != null) {
+      await updateJd(editingId.value, payload);
+      message.success('修改成功');
+    } else {
+      await createJd(payload);
+      message.success('创建成功');
+    }
     showForm.value = false;
     formTitle.value = '';
     formRawText.value = '';
     formSourceUrl.value = '';
     await loadJds();
   } catch {
-    message.error('创建失败，请重试');
+    message.error(editingId.value != null ? '修改失败，请重试' : '创建失败，请重试');
   } finally {
     submitting.value = false;
   }
@@ -75,7 +102,7 @@ function handleDelete(id: number) {
 
       <div class="flex items-center justify-between mb-6">
         <h2 class="text-2xl font-bold text-slate-800 tracking-tight">职位描述管理</h2>
-        <n-button type="primary" @click="showForm = true">新建 JD</n-button>
+        <n-button type="primary" @click="openCreate">新建 JD</n-button>
       </div>
 
       <!-- 美化：加载/空状态升级为组件化展示 -->
@@ -96,15 +123,19 @@ function handleDelete(id: number) {
               <p class="text-sm text-slate-400 mt-0.5">{{ jd.createdAt }}</p>
               <p class="text-sm text-slate-600 mt-2 line-clamp-3 leading-relaxed">{{ jd.rawText }}</p>
             </div>
-            <n-button size="small" tertiary type="error" class="ml-4 shrink-0" @click="handleDelete(jd.id)">删除</n-button>
+            <div class="flex gap-2 ml-4 shrink-0">
+              <n-button size="small" tertiary type="primary" @click="previewJd = jd">预览</n-button>
+              <n-button size="small" tertiary type="info" @click="openEdit(jd)">编辑</n-button>
+              <n-button size="small" tertiary type="error" @click="handleDelete(jd.id)">删除</n-button>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 美化：新建表单弹窗迁移为 n-modal（自带 ESC 关闭/遮罩动画） -->
-    <n-modal v-model:show="showForm" preset="card" title="新建 JD" class="max-w-lg mx-4" :bordered="false">
-      <form @submit.prevent="handleCreate" class="space-y-4">
+    <!-- 美化：新建/编辑表单弹窗迁移为 n-modal（自带 ESC 关闭/遮罩动画） -->
+    <n-modal v-model:show="showForm" preset="card" :title="editingId != null ? '编辑 JD' : '新建 JD'" class="max-w-lg mx-4" :bordered="false">
+      <form @submit.prevent="handleSubmit" class="space-y-4">
         <div>
           <label class="block text-sm font-medium text-slate-700 mb-1.5">职位标题</label>
           <n-input v-model:value="formTitle" placeholder="如：高级 Java 开发工程师" size="large" />
@@ -122,10 +153,24 @@ function handleDelete(id: number) {
           <n-button @click="showForm = false">取消</n-button>
           <n-button type="primary" attr-type="submit" :loading="submitting"
             :disabled="!formTitle || !formRawText">
-            {{ submitting ? '提交中...' : '创建' }}
+            {{ submitting ? '提交中...' : (editingId != null ? '保存' : '创建') }}
           </n-button>
         </div>
       </form>
+    </n-modal>
+
+    <!-- JD 预览弹窗 -->
+    <n-modal :show="!!previewJd" preset="card" :title="previewJd?.title"
+      class="max-w-2xl mx-4" :bordered="false" @update:show="previewJd = null">
+      <div class="max-h-[60vh] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+        {{ previewJd?.rawText }}
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <n-button v-if="previewJd" type="primary" secondary @click="openEdit(previewJd)">编辑</n-button>
+          <n-button @click="previewJd = null">关闭</n-button>
+        </div>
+      </template>
     </n-modal>
   </div>
 </template>

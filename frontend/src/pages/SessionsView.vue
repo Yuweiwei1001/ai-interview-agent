@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { NButton, NEmpty, NSpin } from 'naive-ui';
 import { getSessions, type InterviewSession } from '../api/interview';
+import { toDate } from '../utils/datetime';
 
 const router = useRouter();
 const sessions = ref<InterviewSession[]>([]);
@@ -32,8 +33,8 @@ function statusMeta(status: string): { label: string; cls: string } {
 }
 
 function formatTime(t: string | null): string {
-  if (!t) return '-';
-  const d = new Date(t);
+  const d = toDate(t);
+  if (!d) return '-';
   return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 

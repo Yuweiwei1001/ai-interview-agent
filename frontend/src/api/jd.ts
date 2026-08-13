@@ -28,6 +28,10 @@ export function getJd(id: number) {
   return request.get<{ code: number; msg: string; data: Jd }>(`/api/jds/${id}`);
 }
 
+export function updateJd(id: number, data: JdCreateDTO) {
+  return request.put<{ code: number; msg: string; data: Jd }>(`/api/jds/${id}`, data);
+}
+
 export function deleteJd(id: number) {
   return request.delete<{ code: number; msg: string; data: null }>(`/api/jds/${id}`);
 }
