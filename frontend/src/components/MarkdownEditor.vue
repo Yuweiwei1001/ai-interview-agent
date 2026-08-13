@@ -44,8 +44,9 @@ const EditorInner = defineComponent({
         root: rootRef.value,
         defaultValue: innerProps.modelValue,
         features: {
-          // 默认全开，显式关闭暂不需要的能力（TopBar/AI 默认已关）
+          // 默认全开，显式关闭暂不需要的能力
           [CrepeFeature.Latex]: false,
+          [CrepeFeature.TopBar]: true,
         },
         featureConfigs: {
           [CrepeFeature.Placeholder]: {
