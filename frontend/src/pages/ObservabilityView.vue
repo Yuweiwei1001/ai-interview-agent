@@ -6,6 +6,7 @@ import {
   getTraceSessions, getTraces, getUsageSummary,
   type SessionTraceSummary, type LlmTrace, type UsageSummary
 } from '../api/observability';
+import { toDate } from '../utils/datetime';
 
 const router = useRouter();
 const loading = ref(true);
@@ -49,8 +50,9 @@ function fmtCost(v: number | null | undefined): string {
   return `¥${Number(v).toFixed(4)}`;
 }
 function fmtTime(t: string | null): string {
-  if (!t) return '-';
-  return new Date(t).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const d = toDate(t);
+  if (!d) return '-';
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 function fmtDuration(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;

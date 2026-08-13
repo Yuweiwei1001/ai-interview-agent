@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { NModal, NEmpty, NSpin, NButton, useMessage, useDialog } from 'naive-ui';
-import { getResumes, deleteResume, uploadResume, type Resume } from '../api/resume';
+import { NModal, NEmpty, NSpin, NButton, NInput, useMessage, useDialog } from 'naive-ui';
+import { getResumes, deleteResume, uploadResume, updateResume, type Resume } from '../api/resume';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -10,6 +10,36 @@ const resumes = ref<Resume[]>([]);
 const loading = ref(false);
 const uploadLoading = ref(false);
 const previewResume = ref<Resume | null>(null);
+
+/* 编辑简历 */
+const editingResume = ref<Resume | null>(null);
+const editText = ref('');
+const saving = ref(false);
+
+function openEdit(r: Resume) {
+  editingResume.value = r;
+  editText.value = r.rawText;
+  previewResume.value = null;
+}
+
+async function handleSaveEdit() {
+  if (!editingResume.value) return;
+  if (!editText.value.trim()) {
+    message.warning('简历内容不能为空');
+    return;
+  }
+  saving.value = true;
+  try {
+    await updateResume(editingResume.value.id, editText.value);
+    message.success('保存成功');
+    editingResume.value = null;
+    await loadResumes();
+  } catch (e: any) {
+    message.error(e.response?.data?.msg || '保存失败，请重试');
+  } finally {
+    saving.value = false;
+  }
+}
 
 onMounted(() => loadResumes());
 
@@ -104,6 +134,7 @@ function formatSize(bytes: number) {
           </div>
           <div class="flex gap-2 ml-4 shrink-0">
             <n-button size="small" tertiary type="primary" @click="previewResume = r">预览</n-button>
+            <n-button size="small" tertiary type="info" @click="openEdit(r)">编辑</n-button>
             <n-button size="small" tertiary type="error" @click="handleDelete(r.id)">删除</n-button>
           </div>
         </div>
@@ -116,6 +147,21 @@ function formatSize(bytes: number) {
       <div class="max-h-[60vh] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
         {{ previewResume?.rawText }}
       </div>
+    </n-modal>
+
+    <!-- 编辑简历弹窗 -->
+    <n-modal :show="!!editingResume" preset="card" :title="`编辑简历：${editingResume?.fileName ?? ''}`"
+      class="max-w-3xl mx-4" :bordered="false" @update:show="(v: boolean) => { if (!v) editingResume = null }">
+      <n-input v-model:value="editText" type="textarea" placeholder="简历文本内容"
+        :autosize="{ minRows: 10, maxRows: 20 }" />
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <n-button @click="editingResume = null">取消</n-button>
+          <n-button type="primary" :loading="saving" @click="handleSaveEdit">
+            {{ saving ? '保存中...' : '保存' }}
+          </n-button>
+        </div>
+      </template>
     </n-modal>
   </div>
 </template>

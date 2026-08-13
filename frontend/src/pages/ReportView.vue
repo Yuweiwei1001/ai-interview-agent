@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NProgress, NSpin, NAlert, NButton } from 'naive-ui';
-import { getReport, type InterviewReport } from '../api/interview';
+import { getReport, getSession, type InterviewReport } from '../api/interview';
 import request from '../utils/request';
 
 const route = useRoute();
 const router = useRouter();
+const sessionId = route.params.id as string;
 const report = ref<InterviewReport | null>(null);
 const loading = ref(true);
 const error = ref('');
+
+/* 异步生成态：报告未就绪时轮询；代码未达标时会话退回 waiting_code */
+const generating = ref(false);
+const retryRequired = ref(false);
+const retryQuestion = ref('');
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+let pollCount = 0;
+const MAX_POLL = 200; // 约 10 分钟上限，超时后提示手动刷新
 
 /* 问答折叠面板：默认展开第一题 */
 const expandedQs = ref<Set<number>>(new Set([0]));
@@ -21,16 +30,75 @@ function toggleQ(idx: number) {
   expandedQs.value = s;
 }
 
-onMounted(async () => {
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+async function tryLoadReport(): Promise<boolean> {
   try {
-    const res = await getReport(route.params.id as string);
+    const res = await getReport(sessionId);
     report.value = res.data.data;
-  } catch (e: any) {
-    error.value = e.response?.data?.msg || '加载报告失败';
-  } finally {
+    generating.value = false;
+    stopPolling();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function pollStatus() {
+  pollCount++;
+  if (pollCount > MAX_POLL) {
+    stopPolling();
+    generating.value = false;
+    error.value = '报告生成耗时过长，请稍后刷新重试，或从「面试记录」重新进入';
+    return;
+  }
+  try {
+    const res = await getSession(sessionId);
+    const session = res.data.data;
+    if (!session) return;
+    if (session.status === 'waiting_code') {
+      // 代码未通过评估，会话退回编程环节：引导用户重新提交
+      stopPolling();
+      generating.value = false;
+      retryQuestion.value = session.currentQuestion || '';
+      retryRequired.value = true;
+      return;
+    }
+    if (session.status === 'interrupted' || session.status === 'cancelled') {
+      stopPolling();
+      generating.value = false;
+      error.value = '面试已中断，无法生成报告';
+      return;
+    }
+    // in_progress/completed：报告可能仍在生成，尝试拉取
+    await tryLoadReport();
+  } catch {
+    /* 单次轮询失败静默，等待下一轮 */
+  }
+}
+
+function goRetry() {
+  router.push({ name: 'CodingRoom', query: { sessionId, question: retryQuestion.value } });
+}
+
+onMounted(async () => {
+  // 已有报告（回访场景）直接渲染
+  if (await tryLoadReport()) {
     loading.value = false;
+    return;
+  }
+  loading.value = false;
+  // 报告未就绪：进入生成中轮询（提交代码后服务端异步评估+生成报告）
+  generating.value = true;
+  await pollStatus();
+  if (!report.value && !error.value && !retryRequired.value) {
+    pollTimer = setInterval(pollStatus, 3000);
   }
 });
+
+onUnmounted(() => stopPolling());
 
 /* 分数颜色（文本/十六进制） */
 function scoreColor(score: number): string {
@@ -99,6 +167,26 @@ const downloadReport = async () => {
       <div v-if="loading" class="flex justify-center py-24">
         <n-spin size="large" description="报告加载中..." />
       </div>
+
+      <!-- 报告异步生成中：用户可直接离开，稍后从面试记录查看 -->
+      <div v-else-if="generating" class="bg-white rounded-2xl shadow-card py-20 px-6 text-center">
+        <n-spin size="large" />
+        <h3 class="text-lg font-bold text-slate-800 mt-6">报告生成中…</h3>
+        <p class="text-sm text-slate-500 mt-2 leading-relaxed">
+          代码评估与报告正在后台异步生成，页面将自动刷新。<br />
+          您可以直接离开，生成完成后从「面试记录」随时查看报告。
+        </p>
+        <n-button class="mt-6" secondary @click="router.push('/sessions')">返回面试记录</n-button>
+      </div>
+
+      <!-- 代码未通过评估：引导回到编程页重新提交 -->
+      <div v-else-if="retryRequired" class="bg-white rounded-2xl shadow-card py-16 px-6 text-center">
+        <p class="text-4xl mb-4">⚠️</p>
+        <h3 class="text-lg font-bold text-slate-800">代码未通过评估</h3>
+        <p class="text-sm text-slate-500 mt-2">请返回编程页修改后重新提交，进度不会丢失。</p>
+        <n-button class="mt-6" type="primary" @click="goRetry">返回重新提交</n-button>
+      </div>
+
       <n-alert v-else-if="error" type="error" :bordered="false" class="rounded-xl">{{ error }}</n-alert>
 
       <template v-else-if="report">

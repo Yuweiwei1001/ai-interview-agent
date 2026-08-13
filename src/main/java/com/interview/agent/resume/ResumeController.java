@@ -1,6 +1,7 @@
 package com.interview.agent.resume;
 
 import com.interview.agent.common.result.Result;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -28,6 +29,11 @@ public class ResumeController {
     @GetMapping("/{id}")
     public Result<Resume> getById(@PathVariable Long id) {
         return Result.success(resumeService.getById(id));
+    }
+
+    @PutMapping("/{id}")
+    public Result<Resume> update(@PathVariable Long id, @Valid @RequestBody ResumeUpdateDTO dto) {
+        return Result.success(resumeService.update(id, dto.getRawText()));
     }
 
     @DeleteMapping("/{id}")
