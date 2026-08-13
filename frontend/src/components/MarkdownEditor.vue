@@ -2,6 +2,7 @@
 import { watch, defineComponent, h, ref, onMounted, onUnmounted } from 'vue';
 import { Crepe, CrepeFeature } from '@milkdown/crepe';
 import { replaceAll } from '@milkdown/kit/utils';
+import { uploadKbImage } from '../api/knowledge';
 import '@milkdown/crepe/theme/common/style.css';
 import '@milkdown/crepe/theme/nord.css';
 
@@ -50,6 +51,13 @@ const EditorInner = defineComponent({
           [CrepeFeature.Placeholder]: {
             text: innerProps.placeholder,
             mode: 'doc',
+          },
+          // 图片持久化：粘贴/拖拽/选择图片后上传到后端，返回可访问 URL
+          [CrepeFeature.ImageBlock]: {
+            onUpload: async (file: File) => {
+              const res = await uploadKbImage(file);
+              return res.data.data.url;
+            },
           },
         },
       });

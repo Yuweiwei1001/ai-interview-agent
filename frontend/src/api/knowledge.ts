@@ -55,3 +55,12 @@ export function listDocuments(kbId: number) {
 export function deleteDocument(kbId: number, docId: number) {
   return request.delete<R<null>>(`/api/knowledge-bases/${kbId}/documents/${docId}`);
 }
+
+/** 上传文档图片（持久化到后端磁盘），返回可访问 URL */
+export function uploadKbImage(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return request.post<R<{ url: string }>>('/api/kb-images', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+}

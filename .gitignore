@@ -40,3 +40,6 @@ application-local.yml
 eval-reports/
 .tmp-jar/
 .eval-token
+
+# === 知识库图片上传目录 ===
+kb-images/
