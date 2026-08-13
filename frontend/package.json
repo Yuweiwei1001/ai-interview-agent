@@ -25,6 +25,7 @@
     "@monaco-editor/loader": "^1.7.0",
     "@tailwindcss/oxide-win32-x64-msvc": "^4.3.3",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^26.2.0",
     "@vitejs/plugin-vue": "^5.2.3",
     "@vue/tsconfig": "^0.7.0",
     "tailwindcss": "^4.3.3",

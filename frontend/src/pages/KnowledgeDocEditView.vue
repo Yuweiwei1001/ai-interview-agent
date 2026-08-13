@@ -80,7 +80,7 @@ async function handleSave(vectorize: boolean) {
 
 <template>
   <div class="min-h-screen bg-slate-50">
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 py-6">
+    <div class="max-w-[90vw] mx-auto px-6 py-4">
       <!-- 返回 -->
       <div class="flex items-center gap-4 mb-5">
         <router-link
@@ -104,7 +104,7 @@ async function handleSave(vectorize: boolean) {
         <n-spin size="large" description="加载中..." />
       </div>
 
-      <div v-else class="bg-white rounded-2xl shadow-card p-5 sm:p-6">
+      <div v-else class="bg-white rounded-2xl shadow-card p-6">
         <!-- 标题 -->
         <div class="mb-4">
           <label class="block text-sm font-medium text-slate-700 mb-1.5">文档标题 *</label>
@@ -123,7 +123,7 @@ async function handleSave(vectorize: boolean) {
           <MarkdownEditor
             v-if="!loading"
             v-model="content"
-            height="calc(100vh - 330px)"
+            height="calc(100vh - 210px)"
             placeholder="输入 Markdown 内容：支持 # 标题、- 列表、``` 代码块、| 表格、> 引用等，输入后即时渲染…"
           />
         </div>
@@ -151,7 +151,7 @@ async function handleSave(vectorize: boolean) {
             取消
           </n-button>
         </div>
-        <p class="text-xs text-slate-400 mt-3">
+        <p class="text-xs text-slate-400 mt-2">
           「保存并向量化」会切分文档并生成向量，之后面试时 AI 可检索引用；「仅保存」仅落库为草稿，可稍后再次编辑保存。
         </p>
       </div>

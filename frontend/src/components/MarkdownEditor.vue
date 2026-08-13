@@ -107,7 +107,7 @@ const EditorInner = defineComponent({
 <style scoped>
 .md-editor-wrapper {
   position: relative;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid var(--n-border-color, #e5e7eb);
   border-radius: 10px;
   background: #fff;
@@ -151,5 +151,12 @@ const EditorInner = defineComponent({
 .md-editor-wrapper:focus-within {
   border-color: var(--primary-color, #6366f1);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+/* 编辑器内大图缩放 */
+.md-editor-wrapper :deep(.milkdown .ProseMirror img) {
+  max-width: 100%;
+  height: auto;
+ border-radius: 8px;
 }
 </style>
