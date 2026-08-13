@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { NModal, NEmpty, NSpin, NButton, NInput, NTag, NCheckbox, useMessage, useDialog } from 'naive-ui';
+import { useRoute, useRouter } from 'vue-router';
+import { NModal, NEmpty, NSpin, NButton, NInput, NTag, useMessage, useDialog } from 'naive-ui';
 import {
   getKbs, createKb, deleteKb,
-  listDocuments, addDocument, deleteDocument,
+  listDocuments, deleteDocument,
   type KnowledgeBase, type KnowledgeDocument
 } from '../api/knowledge';
 
 const message = useMessage();
 const dialog = useDialog();
+const route = useRoute();
+const router = useRouter();
 
 const kbs = ref<KnowledgeBase[]>([]);
 const loading = ref(false);
@@ -21,14 +24,17 @@ const submittingKb = ref(false);
 const activeKb = ref<KnowledgeBase | null>(null);
 const docs = ref<KnowledgeDocument[]>([]);
 const loadingDocs = ref(false);
-const showDocForm = ref(false);
-const docTitle = ref('');
-const docContent = ref('');
-const docVectorize = ref(true);
-const submittingDoc = ref(false);
 let docPollTimer: ReturnType<typeof setInterval> | null = null;
 
-onMounted(() => loadKbs());
+onMounted(async () => {
+  await loadKbs();
+  // 从文档编辑页跳回时自动展开对应知识库
+  const kbParam = Number(route.query.kb);
+  if (kbParam) {
+    const target = kbs.value.find((k) => k.id === kbParam);
+    if (target) await openDocs(target);
+  }
+});
 
 async function loadKbs() {
   loading.value = true;
@@ -114,25 +120,12 @@ function closeDocs() {
 
 async function handleAddDoc() {
   if (!activeKb.value) return;
-  submittingDoc.value = true;
-  try {
-    await addDocument(activeKb.value.id, {
-      title: docTitle.value,
-      contentMd: docContent.value,
-      vectorize: docVectorize.value
-    });
-    message.success(docVectorize.value ? '已保存，向量化进行中' : '已保存为草稿');
-    showDocForm.value = false;
-    docTitle.value = '';
-    docContent.value = '';
-    docVectorize.value = true;
-    await loadDocs();
-    await loadKbs();
-  } catch {
-    message.error('保存文档失败');
-  } finally {
-    submittingDoc.value = false;
-  }
+  router.push(`/knowledge-bases/${activeKb.value.id}/documents/new`);
+}
+
+function handleEditDoc(doc: KnowledgeDocument) {
+  if (!activeKb.value) return;
+  router.push(`/knowledge-bases/${activeKb.value.id}/documents/${doc.id}`);
 }
 
 function handleDeleteDoc(doc: KnowledgeDocument) {
@@ -213,7 +206,7 @@ function statusLabel(status: string) {
           <div v-if="activeKb?.id === kb.id" class="mt-4 border-t border-slate-100 pt-4">
             <div class="flex items-center justify-between mb-3">
               <h4 class="text-sm font-semibold text-slate-700">文档列表</h4>
-              <n-button size="small" type="primary" @click="showDocForm = true">添加文档</n-button>
+              <n-button size="small" type="primary" @click="handleAddDoc">添加文档</n-button>
             </div>
             <div v-if="loadingDocs" class="flex justify-center py-6">
               <n-spin description="加载中..." />
@@ -228,6 +221,7 @@ function statusLabel(status: string) {
                 </div>
                 <div class="flex items-center gap-2 shrink-0 ml-3">
                   <n-tag size="small" :bordered="false" :type="statusType(doc.status)">{{ statusLabel(doc.status) }}</n-tag>
+                  <n-button size="tiny" secondary type="primary" @click="handleEditDoc(doc)">编辑</n-button>
                   <n-button size="tiny" tertiary type="error" @click="handleDeleteDoc(doc)">删除</n-button>
                 </div>
               </div>
@@ -252,28 +246,6 @@ function statusLabel(status: string) {
           <n-button @click="showKbForm = false">取消</n-button>
           <n-button type="primary" attr-type="submit" :loading="submittingKb" :disabled="!kbName">
             {{ submittingKb ? '提交中...' : '创建' }}
-          </n-button>
-        </div>
-      </form>
-    </n-modal>
-
-    <!-- 添加文档弹窗 -->
-    <n-modal v-model:show="showDocForm" preset="card" title="添加文档" class="max-w-2xl mx-4" :bordered="false">
-      <form @submit.prevent="handleAddDoc" class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1.5">文档标题</label>
-          <n-input v-model:value="docTitle" placeholder="如：HashMap 底层原理" size="large" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-slate-700 mb-1.5">正文内容（Markdown）</label>
-          <n-input v-model:value="docContent" type="textarea" placeholder="粘贴知识内容"
-            :autosize="{ minRows: 8, maxRows: 16 }" />
-        </div>
-        <n-checkbox v-model:checked="docVectorize">保存并向量化（推荐，向量化后可被面试检索引用）</n-checkbox>
-        <div class="flex justify-end gap-3 pt-2">
-          <n-button @click="showDocForm = false">取消</n-button>
-          <n-button type="primary" attr-type="submit" :loading="submittingDoc" :disabled="!docTitle || !docContent">
-            {{ submittingDoc ? '提交中...' : '保存' }}
           </n-button>
         </div>
       </form>

@@ -4,7 +4,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { NButton, NSwitch, NSpin, NEmpty } from 'naive-ui';
 import {
   listEvalCases, startEvalRun, getEvalRun,
-  type EvalCaseSummary, type EvalRun, type CaseResult
+  type EvalCaseSummary, type EvalRun
 } from '../api/eval';
 
 const router = useRouter();

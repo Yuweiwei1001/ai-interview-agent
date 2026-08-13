@@ -9,6 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@milkdown/core": "^7.22.1",
+    "@milkdown/kit": "^7.22.1",
+    "@milkdown/theme-nord": "^7.22.1",
+    "@milkdown/vue": "^7.22.1",
     "axios": "^1.19.0",
     "marked": "^15.0.12",
     "monaco-editor": "^0.56.0",

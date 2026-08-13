@@ -40,6 +40,14 @@ export function addDocument(kbId: number, data: { title: string; contentMd: stri
   return request.post<R<KnowledgeDocument>>(`/api/knowledge-bases/${kbId}/documents`, data);
 }
 
+export function getDocument(kbId: number, docId: number) {
+  return request.get<R<KnowledgeDocument>>(`/api/knowledge-bases/${kbId}/documents/${docId}`);
+}
+
+export function updateDocument(kbId: number, docId: number, data: { title: string; contentMd: string; vectorize: boolean }) {
+  return request.put<R<KnowledgeDocument>>(`/api/knowledge-bases/${kbId}/documents/${docId}`, data);
+}
+
 export function listDocuments(kbId: number) {
   return request.get<R<KnowledgeDocument[]>>(`/api/knowledge-bases/${kbId}/documents`);
 }
