@@ -12,7 +12,8 @@ import org.springframework.stereotype.Component;
 public class ObservabilityProperties {
     private Cost cost = new Cost();
     private int retentionDays = 30;
-    private int promptExcerptLength = 500;
+    /** prompt/回复存储长度上限：<=0 表示存全文（受硬上限保护），正整数表示截断到该字数 */
+    private int promptExcerptLength = -1;
 
     public Cost getCost() {
         return cost;

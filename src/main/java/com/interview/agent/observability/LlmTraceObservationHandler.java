@@ -35,6 +35,8 @@ public class LlmTraceObservationHandler implements ObservationHandler<ChatModelO
 
     private static final String KEY_START_NANOS = "llm-trace-start-nanos";
     private static final int QUEUE_CAPACITY = 1000;
+    /** 硬上限：列类型 TEXT（64KB/utf8mb4），预留余量防写入失败 */
+    private static final int HARD_MAX_CHARS = 12000;
 
     private final LlmTraceMapper traceMapper;
     private final ObservabilityProperties properties;
@@ -131,7 +133,11 @@ public class LlmTraceObservationHandler implements ObservationHandler<ChatModelO
         if (text == null || text.isBlank()) {
             return null;
         }
-        return truncate(text.strip(), properties.getPromptExcerptLength());
+        String stripped = text.strip();
+        int max = properties.getPromptExcerptLength();
+        // <=0 表示存全文（仍受 HARD_MAX_CHARS 保护）；正整数表示截断到该字数
+        int limit = max <= 0 ? HARD_MAX_CHARS : Math.min(max, HARD_MAX_CHARS);
+        return truncate(stripped, limit);
     }
 
     private String truncate(String text, int max) {
