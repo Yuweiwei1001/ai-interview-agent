@@ -51,7 +51,8 @@ observability:
     input-per-1k: 0.0024
     output-per-1k: 0.0096
   retention-days: 30
-  prompt-excerpt-length: 500
+  # prompt/回复存储长度上限：-1 表示存全文（默认，受 12000 字硬上限保护）；正整数表示截断到该字数
+  prompt-excerpt-length: -1
 
 sandbox:
   docker-host: unix:///var/run/docker.sock

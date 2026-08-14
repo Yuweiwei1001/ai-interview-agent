@@ -46,9 +46,8 @@ public class TechnicalAgent {
         sb.append("你是一位资深技术面试官，负责考察候选人的技术基础能力。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
         sb.append("难度级别：").append(difficulty).append("\n\n");
-        if (resumeText != null && !resumeText.isBlank()) {
-            sb.append("候选人简历：").append(resumeText).append("\n\n");
-        }
+        // 成本优化：八股题主题由面试计划 + Coordinator 决策保证，全量简历对出题无增益，不再注入（每轮省 ~2k 输入 token）；
+        // resumeText 参数保留仅为调用方签名兼容。项目经验题（ProjectAgent）仍注入全量简历。
         if (askedTopics != null && !askedTopics.isEmpty()) {
             sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
         }

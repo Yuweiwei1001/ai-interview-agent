@@ -48,9 +48,7 @@ public class CodingAgent {
         sb.append("你是一位算法面试官，负责考察候选人的编码和算法能力。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
         sb.append("难度级别：").append(difficulty).append("\n\n");
-        if (resumeText != null && !resumeText.isBlank()) {
-            sb.append("候选人简历：").append(resumeText).append("\n\n");
-        }
+        // 成本优化：算法题与简历无关，不再注入全量简历（每轮省 ~2k 输入 token）；resumeText 参数保留仅为签名兼容
         if (askedTopics != null && !askedTopics.isEmpty()) {
             sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
         }
