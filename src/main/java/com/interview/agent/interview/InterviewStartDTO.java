@@ -1,5 +1,6 @@
 package com.interview.agent.interview;
 
+import com.interview.agent.interview.plan.InterviewPlan;
 import jakarta.validation.constraints.Min;
 
 public class InterviewStartDTO {
@@ -11,6 +12,8 @@ public class InterviewStartDTO {
     private int durationMinutes = 30;
     /** 可选：关联知识库，面试出题/评估时检索注入 */
     private Long knowledgeBaseId;
+    /** 可选：前端预览阶段已生成的面试计划，原样透传复用，避免启动时重新生成导致出题与展示的计划不一致 */
+    private InterviewPlan plan;
 
     public Long getResumeId() { return resumeId; }
     public void setResumeId(Long resumeId) { this.resumeId = resumeId; }
@@ -24,4 +27,6 @@ public class InterviewStartDTO {
     public void setDurationMinutes(int durationMinutes) { this.durationMinutes = durationMinutes; }
     public Long getKnowledgeBaseId() { return knowledgeBaseId; }
     public void setKnowledgeBaseId(Long knowledgeBaseId) { this.knowledgeBaseId = knowledgeBaseId; }
+    public InterviewPlan getPlan() { return plan; }
+    public void setPlan(InterviewPlan plan) { this.plan = plan; }
 }

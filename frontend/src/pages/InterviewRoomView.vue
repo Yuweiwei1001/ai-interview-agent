@@ -275,6 +275,16 @@ function startInterview() {
     durationMinutes: Number(route.query.durationMinutes) || 30
   };
 
+  // 复用开始页预览生成的面试计划，保证实际出题与用户看到的计划一致；解析失败则回退由后端自行生成
+  const pendingPlan = sessionStorage.getItem('pendingInterviewPlan');
+  sessionStorage.removeItem('pendingInterviewPlan');
+  if (pendingPlan) {
+    try {
+      const parsed = JSON.parse(pendingPlan);
+      if (parsed && parsed.agentAssignments) body.plan = parsed;
+    } catch { /* 忽略，后端会自行生成计划 */ }
+  }
+
   sseClient = new SseClient();
   sseClient.connect('/api/interviews/start', body, handleSseEvent, () => {
     error.value = '连接失败';

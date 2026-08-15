@@ -144,8 +144,11 @@ public class InterviewService {
                 initialState.setDurationMinutes(dto.getDurationMinutes());
                 initialState.setKnowledgeBaseId(dto.getKnowledgeBaseId());
 
-                // 生成计划（异步，不阻塞 SSE 首包）
-                InterviewPlan plan = createPlan(dto.getResumeId(), dto.getJdId(), dto.getDirection(), dto.getPersona(), dto.getDurationMinutes());
+                // 优先复用前端预览阶段透传的计划（用户看到的计划即实际执行的计划）；缺失/非法时才重新生成
+                InterviewPlan plan = dto.getPlan();
+                if (plan == null || plan.getAgentAssignments() == null || plan.getAgentAssignments().isEmpty()) {
+                    plan = createPlan(dto.getResumeId(), dto.getJdId(), dto.getDirection(), dto.getPersona(), dto.getDurationMinutes());
+                }
                 if (plan != null) {
                     initialState.setPlan(plan);
                     try {

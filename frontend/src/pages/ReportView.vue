@@ -37,6 +37,9 @@ function stopPolling() {
 async function tryLoadReport(): Promise<boolean> {
   try {
     const res = await getReport(sessionId);
+    // 仅 code=1 且 data 非空才算就绪：报告未生成时后端返回 code=0/data=null（HTTP 200），
+    // 若不校验会误判加载成功导致页面除标题外全空白
+    if (res.data?.code !== 1 || !res.data?.data) return false;
     report.value = res.data.data;
     generating.value = false;
     stopPolling();
@@ -56,8 +59,8 @@ async function pollStatus() {
   }
   try {
     const res = await getSession(sessionId);
+    if (res.data?.code !== 1 || !res.data?.data) return;
     const session = res.data.data;
-    if (!session) return;
     if (session.status === 'waiting_code') {
       // 代码未通过评估，会话退回编程环节：引导用户重新提交
       stopPolling();
@@ -188,6 +191,14 @@ const downloadReport = async () => {
       </div>
 
       <n-alert v-else-if="error" type="error" :bordered="false" class="rounded-xl">{{ error }}</n-alert>
+
+      <!-- 兜底守卫：任何状态都未命中时提示刷新，避免页面除标题外全空白 -->
+      <div v-else-if="!report" class="bg-white rounded-2xl shadow-card py-16 px-6 text-center">
+        <p class="text-4xl mb-4">📄</p>
+        <h3 class="text-lg font-bold text-slate-800">报告暂未就绪</h3>
+        <p class="text-sm text-slate-500 mt-2">报告尚未生成或加载异常，请稍后刷新重试。</p>
+        <n-button class="mt-6" type="primary" @click="router.push('/sessions')">返回面试记录</n-button>
+      </div>
 
       <template v-else-if="report">
         <!-- 顶部概览：环形分 + 结论徽标 + 题数 -->

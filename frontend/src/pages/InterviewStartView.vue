@@ -61,6 +61,12 @@ async function handleGeneratePlan() {
 }
 
 function startInterview() {
+  // 预览计划透传：存入 sessionStorage，面试间启动时原样传给后端复用，避免重新生成计划导致出题与展示的计划不一致
+  if (plan.value) {
+    sessionStorage.setItem('pendingInterviewPlan', JSON.stringify(plan.value));
+  } else {
+    sessionStorage.removeItem('pendingInterviewPlan');
+  }
   router.push({
     name: 'InterviewRoom',
     query: {
