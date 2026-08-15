@@ -28,6 +28,8 @@ const completed = ref(false);
 const thinking = ref(false);
 const error = ref('');
 const reportReady = ref(false);
+/* 回顾模式：进入时会话已结束（completed/interrupted），不计时不连 SSE，仅展示历史问答 */
+const isReview = ref(false);
 const completeReason = ref('面试已结束');
 /* 流式题目（打字机效果）：QUESTION_DELTA 逐块累积，完整 QUESTION 到达后清空 */
 const streamingContent = ref('');
@@ -114,7 +116,9 @@ function startPolling() {
 }
 
 onMounted(() => {
-  timerInterval = setInterval(() => { now.value = Date.now(); }, 1000);
+  if (!isReview.value) {
+    timerInterval = setInterval(() => { now.value = Date.now(); }, 1000);
+  }
   startInterview();
 });
 
@@ -243,11 +247,31 @@ function startInterview() {
   // 如果是从编码页返回且携带了题目数据，先展示
   const incomingQuestion = route.query.question as string | undefined;
 
-  // 已有会话（编码环节返回/刷新页面）：重连 SSE 流而非新建会话
+  // 已有会话（编码环节返回/刷新页面/回顾问答）：先查会话状态，已结束则进入回顾模式
   if (existingSessionId) {
     sessionId.value = existingSessionId;
     connected.value = true;
-    startPolling();
+    getSession(existingSessionId)
+      .then(res => {
+        const s = res.data?.data;
+        if (s && (s.status === 'completed' || s.status === 'interrupted')) {
+          // 回顾模式：不计时、不轮询、不连 SSE，仅加载历史问答
+          isReview.value = true;
+          completed.value = true;
+          if (s.report) reportReady.value = true;
+          if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        } else {
+          startPolling();
+          sseClient = new SseClient();
+          sseClient.connectGet(`/api/interviews/${existingSessionId}/stream`, handleSseEvent, () => {
+            error.value = '连接失败';
+            thinking.value = false;
+          });
+        }
+      })
+      .catch(() => {
+        startPolling();
+      });
     loadHistory(existingSessionId).finally(() => {
       // 历史恢复后再追加传入的当前题目，避免被历史覆盖
       if (incomingQuestion) {
@@ -257,11 +281,6 @@ function startInterview() {
           timestamp: new Date().toLocaleTimeString()
         });
       }
-    });
-    sseClient = new SseClient();
-    sseClient.connectGet(`/api/interviews/${existingSessionId}/stream`, handleSseEvent, () => {
-      error.value = '连接失败';
-      thinking.value = false;
     });
     return;
   }
@@ -393,8 +412,8 @@ function goToReport() {
               class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors duration-200">
               ← 返回
             </button>
-            <h2 class="text-lg font-bold text-slate-800 tracking-tight whitespace-nowrap">面试进行中</h2>
-            <span class="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg tabular-nums shrink-0">
+            <h2 class="text-lg font-bold text-slate-800 tracking-tight whitespace-nowrap">{{ isReview ? '面试回顾' : '面试进行中' }}</h2>
+            <span v-if="!isReview" class="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg tabular-nums shrink-0">
               ⏱ {{ elapsedSeconds }}
             </span>
             <span v-if="currentQuestionNumber > 0" class="text-xs font-medium text-slate-500 shrink-0 hidden sm:inline">
@@ -454,11 +473,11 @@ function goToReport() {
         <!-- 面试完成卡片 -->
         <div v-if="completed" class="mt-4 text-center">
           <div class="inline-block bg-white border border-blue-100 rounded-2xl px-7 py-5 shadow-card">
-            <div class="text-blue-700 text-lg font-bold mb-1">🎉 面试已结束</div>
-            <p class="text-sm text-slate-500">{{ completeReason }}</p>
+            <div class="text-blue-700 text-lg font-bold mb-1">{{ isReview ? '📄 问答回顾' : '🎉 面试已结束' }}</div>
+            <p class="text-sm text-slate-500">{{ isReview ? '以上为本次面试的完整问答记录' : completeReason }}</p>
             <div v-if="!reportReady" class="mt-3 flex items-center justify-center gap-2 text-sm text-slate-400">
-              <span class="w-3.5 h-3.5 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin"></span>
-              正在生成面试报告，请稍候…
+              <span v-if="!isReview" class="w-3.5 h-3.5 border-2 border-blue-200 border-t-blue-500 rounded-full animate-spin"></span>
+              {{ isReview ? '本次面试暂无可用报告' : '正在生成面试报告，请稍候…' }}
             </div>
             <n-button v-else type="primary" class="mt-3" @click="goToReport">
               查看面试报告 →
@@ -468,8 +487,8 @@ function goToReport() {
       </div>
     </div>
 
-    <!-- Input -->
-    <div class="bg-white/80 backdrop-blur border-t border-slate-200/70 px-4 sm:px-6 py-4 shrink-0">
+    <!-- Input：回顾模式下隐藏回答输入区 -->
+    <div v-if="!isReview" class="bg-white/80 backdrop-blur border-t border-slate-200/70 px-4 sm:px-6 py-4 shrink-0">
       <div class="flex gap-3 max-w-4xl mx-auto items-end">
         <n-input v-model:value="answer" type="textarea" :disabled="!connected || completed"
           placeholder="输入你的回答...（Ctrl + Enter 发送）"
