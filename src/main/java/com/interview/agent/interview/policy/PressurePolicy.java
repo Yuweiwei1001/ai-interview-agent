@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
  * - 不给予重试机会
  * - 不给提示
  * - 严格评估
- * - 不追问
+ * - 回答不达标时压迫式追问（追问是施压与深挖手段，而非扶持；不放水、不给第二次机会）
  */
 @Component
 public class PressurePolicy implements BehaviorPolicy {
@@ -34,6 +34,6 @@ public class PressurePolicy implements BehaviorPolicy {
 
     @Override
     public FollowUpStrategy followUpStrategy() {
-        return FollowUpStrategy.NEVER;
+        return FollowUpStrategy.ON_FAILURE;
     }
 }

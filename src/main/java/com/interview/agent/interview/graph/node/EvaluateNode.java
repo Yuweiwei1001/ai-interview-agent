@@ -115,7 +115,8 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
                     state.getCurrentQuestion(),
                     state.getCurrentAnswer(),
                     evaluation,
-                    policy
+                    policy,
+                    state.getPersona()
             );
             state.setPendingFollowUp(followUp);
         }
