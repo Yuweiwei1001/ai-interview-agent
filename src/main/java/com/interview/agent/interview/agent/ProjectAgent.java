@@ -53,7 +53,7 @@ public class ProjectAgent {
             sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
         }
         if (weakPoints != null && !weakPoints.isEmpty()) {
-            sb.append("候选人历史薄弱知识点（长期记忆）：").append(String.join("、", weakPoints)).append("\n");
+            sb.append("候选人薄弱知识点（面试计划优先考察项 + 历史记忆）：").append(String.join("、", weakPoints)).append("\n");
             sb.append("若某个薄弱点与本次考察主题相关，优先围绕它出题；不相关则忽略。\n\n");
         }
         if (referenceKnowledge != null && !referenceKnowledge.isBlank()) {

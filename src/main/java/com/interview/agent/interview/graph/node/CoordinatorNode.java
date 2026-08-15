@@ -5,12 +5,14 @@ import com.interview.agent.interview.agent.ProjectAgent;
 import com.interview.agent.interview.agent.QuestionDeduper;
 import com.interview.agent.interview.agent.TechnicalAgent;
 import com.interview.agent.interview.graph.InterviewState;
+import com.interview.agent.interview.plan.InterviewPlan;
 import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePoint;
 import com.interview.agent.memory.KnowledgePointService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -20,7 +22,8 @@ import java.util.stream.Collectors;
  *
  * <p>环节顺序：八股（technical）→ 项目（project）→ 编程（coding，恒为最后一题）。
  * 总轮次以 maxRounds 为准：编程固定占 1 轮，剩余轮次技术（向上取整）与项目均分。
- * 环节内部的具体题目仍由各 Agent 的 LLM 自由发挥，并注入候选人历史薄弱知识点引导优先考察。
+ * 环节内的考察主题与难度取自面试计划的 agentAssignments（按轮次顺序消费），
+ * 并注入计划 weakPointPriority 与候选人历史薄弱知识点引导优先考察；无计划时回退内置主题池。
  */
 public class CoordinatorNode implements Function<InterviewState, InterviewState> {
     private static final Logger log = LoggerFactory.getLogger(CoordinatorNode.class);
@@ -62,26 +65,27 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
         int projSlots = textTotal - techSlots;
 
         String nextAgent;
-        String topic;
         if (codingDone >= 1) {
             // 兜底护栏：编程题已出但面试未结束（正常不应发生），改派轮次较少的一方补充
             nextAgent = techDone <= projDone ? "technical" : "project";
-            topic = "technical".equals(nextAgent)
-                    ? TECHNICAL_TOPICS.get((int) techDone % TECHNICAL_TOPICS.size())
-                    : PROJECT_TOPICS.get((int) projDone % PROJECT_TOPICS.size());
             log.warn("编程题已出但面试未结束，改派补充题: agent={}", nextAgent);
         } else if (techDone < techSlots) {
             nextAgent = "technical";
-            topic = TECHNICAL_TOPICS.get((int) techDone % TECHNICAL_TOPICS.size());
         } else if (projDone < projSlots) {
             nextAgent = "project";
-            topic = PROJECT_TOPICS.get((int) projDone % PROJECT_TOPICS.size());
         } else {
             // 八股与项目均已问完 → 编程题收尾（全场仅 1 道，纯算法主题）
             nextAgent = "coding";
-            topic = CODING_TOPICS.get((int) ((techDone + projDone) % CODING_TOPICS.size()));
         }
-        String difficulty = difficultyOf(state.getPersona());
+
+        // 计划驱动出题：主题/难度优先取自面试计划的 agentAssignments，无计划时回退内置主题池
+        InterviewPlan plan = state.getPlan();
+        InterviewPlan.AgentAssignment assignment =
+                (plan != null && plan.getAgentAssignments() != null) ? plan.getAgentAssignments().get(nextAgent) : null;
+        String topic = pickTopic(nextAgent, assignment, techDone, projDone);
+        String difficulty = (assignment != null && assignment.getDifficulty() != null && !assignment.getDifficulty().isBlank())
+                ? normalizeDifficulty(assignment.getDifficulty(), state.getPersona())
+                : difficultyOf(state.getPersona());
         log.info("固定编排路由: agent={}, topic={}, tech={}/{}, proj={}/{}, maxRounds={}",
                 nextAgent, topic, techDone, techSlots, projDone, projSlots, state.getMaxRounds());
 
@@ -99,8 +103,14 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
                 .collect(Collectors.toList());
 
         String persona = state.getPersona() != null ? state.getPersona() : "neutral";
-        // 长期记忆读取：取候选人历史薄弱知识点，注入出题 prompt 引导优先考察（闭环的读取端）
-        List<String> weakPoints = loadWeakPoints();
+        // 薄弱点注入：面试计划 weakPointPriority（本场优先考察项）在前，历史长期记忆薄弱点在后
+        List<String> weakPoints = new ArrayList<>();
+        if (plan != null && plan.getWeakPointPriority() != null) {
+            plan.getWeakPointPriority().stream()
+                    .filter(w -> w != null && !w.isBlank())
+                    .forEach(weakPoints::add);
+        }
+        weakPoints.addAll(loadWeakPoints());
         // 知识库 RAG：按本次考察主题检索关联知识片段，注入出题 prompt（无知识库/无结果时为 null）
         String referenceKnowledge = knowledgeRetriever.search(state.getKnowledgeBaseId(), topic, 3);
         String question = generateQuestion(nextAgent, topic, difficulty, state.getResumeText(), askedTopics, persona, weakPoints, referenceKnowledge);
@@ -126,6 +136,36 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
         return state.getRounds().stream()
                 .filter(r -> agent.equals(r.getAgentName()) && !r.isFollowup())
                 .count();
+    }
+
+    /**
+     * 选题：计划 agentAssignments 的 topics 按已消耗轮次顺序消费（保证出题与计划一致）；
+     * 无计划/无 topics 时回退内置主题池轮换。
+     */
+    private String pickTopic(String nextAgent, InterviewPlan.AgentAssignment assignment, long techDone, long projDone) {
+        if (assignment != null && assignment.getTopics() != null && !assignment.getTopics().isEmpty()) {
+            List<String> topics = assignment.getTopics();
+            long consumed = switch (nextAgent) {
+                case "technical" -> techDone;
+                case "project" -> projDone;
+                default -> 0;
+            };
+            return topics.get((int) (consumed % topics.size()));
+        }
+        return switch (nextAgent) {
+            case "technical" -> TECHNICAL_TOPICS.get((int) techDone % TECHNICAL_TOPICS.size());
+            case "project" -> PROJECT_TOPICS.get((int) projDone % PROJECT_TOPICS.size());
+            default -> CODING_TOPICS.get((int) ((techDone + projDone) % CODING_TOPICS.size()));
+        };
+    }
+
+    /** 计划难度归一化（兼容 LLM 输出 medium/中等 等写法）；无法识别时回退人格难度 */
+    private String normalizeDifficulty(String planDifficulty, String persona) {
+        String d = planDifficulty.toLowerCase();
+        if (d.contains("easy") || d.contains("简单")) return "简单";
+        if (d.contains("hard") || d.contains("难")) return "偏难";
+        if (d.contains("medium") || d.contains("中")) return "中等";
+        return difficultyOf(persona);
     }
 
     /** 八股主题池（按轮次轮换，覆盖后端常见基础方向） */
