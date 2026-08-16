@@ -35,6 +35,7 @@ import com.interview.agent.interview.policy.BehaviorPolicyFactory;
 import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePointService;
 import com.interview.agent.observability.LlmTraceContextHolder;
+import com.interview.agent.observability.LlmTraceObservationHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -101,6 +102,7 @@ public class InterviewGraphBuilder {
     private final AnswerEvaluator answerEvaluator;
     private final RoundPersistenceService roundPersistenceService;
     private final KnowledgeRetriever knowledgeRetriever;
+    private final LlmTraceObservationHandler traceHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
@@ -111,7 +113,8 @@ public class InterviewGraphBuilder {
                                  KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
                                  TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
                                  RoundPersistenceService roundPersistenceService,
-                                 KnowledgeRetriever knowledgeRetriever) {
+                                 KnowledgeRetriever knowledgeRetriever,
+                                 LlmTraceObservationHandler traceHandler) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -128,6 +131,7 @@ public class InterviewGraphBuilder {
         this.answerEvaluator = answerEvaluator;
         this.roundPersistenceService = roundPersistenceService;
         this.knowledgeRetriever = knowledgeRetriever;
+        this.traceHandler = traceHandler;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -150,7 +154,8 @@ public class InterviewGraphBuilder {
         CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, knowledgePointService, knowledgeRetriever);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
-                codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService, knowledgeRetriever);
+                codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService, knowledgeRetriever,
+                traceHandler);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
         StateGraph graph = new StateGraph(keyStrategyFactory());
@@ -280,13 +285,13 @@ public class InterviewGraphBuilder {
     }
 
     /**
-     * 为节点注入 LLM 追踪上下文（sessionId）。
+     * 为节点注入 LLM 追踪上下文（sessionId + 轮次 traceId）。
      * 节点运行在 StateGraph 异步线程池，调用线程的 ThreadLocal 不会自动传播，必须在节点线程内设置。
      */
     private NodeAction withTraceContext(NodeAction action) {
         return state -> {
             InterviewState interviewState = toInterviewState(state);
-            LlmTraceContextHolder.setSessionId(interviewState.getSessionId());
+            LlmTraceContextHolder.setSessionAndRound(interviewState.getSessionId(), interviewState.getRoundTraceId());
             try {
                 return action.apply(state);
             } finally {

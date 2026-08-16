@@ -32,6 +32,9 @@ public class InterviewState {
     // 待追问内容（EvaluateNode 生成，FollowUpNode 消费）
     private String pendingFollowUp;
 
+    // 当前轮次观测关联 ID（CoordinatorNode 派发新题时生成，追问轮沿用主轮；串联同轮 llm_trace 行）
+    private String roundTraceId;
+
     // 当前评估是否为追问轮
     private boolean isFollowUpRound;
 
@@ -96,6 +99,8 @@ public class InterviewState {
     public void setIsFollowUpRound(boolean isFollowUpRound) { this.isFollowUpRound = isFollowUpRound; }
     public String getCodingHint() { return codingHint; }
     public void setCodingHint(String codingHint) { this.codingHint = codingHint; }
+    public String getRoundTraceId() { return roundTraceId; }
+    public void setRoundTraceId(String roundTraceId) { this.roundTraceId = roundTraceId; }
 
     public static class RoundRecord {
         private int roundNumber;

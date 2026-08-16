@@ -9,11 +9,13 @@ import com.interview.agent.interview.plan.InterviewPlan;
 import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePoint;
 import com.interview.agent.memory.KnowledgePointService;
+import com.interview.agent.observability.LlmTraceContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -49,6 +51,13 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
     @Override
     public InterviewState apply(InterviewState state) {
         log.info("CoordinatorNode: 决定下一个Agent, round={}", state.getCurrentRound() + 1);
+
+        // 新轮次观测关联 ID：串联本轮出题/检索/评分/追问的 llm_trace 行；
+        // 追问轮不经过 Coordinator（followUp → evaluate），自然沿用主轮 traceId。
+        // 注意：withTraceContext 在节点体执行前已用旧 state 设置 ThreadLocal，
+        // 这里生成新 ID 后必须立即刷新当前线程上下文，否则本节点内的出题/检索 span 会拿到上一轮的 traceId
+        state.setRoundTraceId("rt-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
+        LlmTraceContextHolder.setSessionAndRound(state.getSessionId(), state.getRoundTraceId());
 
         // 获取已问主题列表（用于 Agent 出题时避重）
         List<String> askedTopics = state.getRounds().stream()

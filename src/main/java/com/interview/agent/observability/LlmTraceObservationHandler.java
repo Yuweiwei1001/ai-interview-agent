@@ -24,8 +24,9 @@ import java.util.concurrent.TimeUnit;
  * <p>设计要点：
  * <ul>
  *   <li>只在 onStop 记录一次（异常时 context.getError() 非空，标记 error）</li>
- *   <li>agent/sessionId 归因来自 {@link LlmTraceContextHolder}（调用前由 wrapper 恢复到执行线程）</li>
- *   <li>异步单线程写库 + 有界队列，观测链路任何异常都不影响面试主链路</li>
+ *   <li>agent/sessionId/roundTraceId 归因来自 {@link LlmTraceContextHolder}（调用前由 wrapper 恢复到执行线程）</li>
+ *   <li>异步单线程写库 + 有界队列，观测链路任何异常都不影响面试主链路；
+ *       队列为任务队列（insert / 评分回写 update），单线程顺序执行保证回写不早于同轮 insert</li>
  *   <li>成本在写入时按模型单价计算（observability.cost.*，元/千token）</li>
  * </ul>
  */
@@ -40,7 +41,8 @@ public class LlmTraceObservationHandler implements ObservationHandler<ChatModelO
 
     private final LlmTraceMapper traceMapper;
     private final ObservabilityProperties properties;
-    private final BlockingQueue<LlmTrace> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
+    /** 任务队列：insert / 评分回写 update 均为任务，单线程顺序执行保证写入顺序 */
+    private final BlockingQueue<Runnable> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
     private final ExecutorService writer;
 
     public LlmTraceObservationHandler(LlmTraceMapper traceMapper, ObservabilityProperties properties) {
@@ -69,12 +71,27 @@ public class LlmTraceObservationHandler implements ObservationHandler<ChatModelO
     public void onStop(ChatModelObservationContext context) {
         try {
             LlmTrace trace = buildTrace(context);
-            if (!queue.offer(trace)) {
-                log.warn("llm_trace 队列已满，丢弃一条追踪记录: agent={}", trace.getAgent());
-            }
+            submit(trace);
         } catch (Exception e) {
             // 观测系统故障绝不能影响面试主链路
             log.warn("构建 llm_trace 记录失败（已忽略）", e);
+        }
+    }
+
+    /** 提交一条 trace 行（LLM 调用或检索 span）到异步写入队列 */
+    public void submit(LlmTrace trace) {
+        if (!queue.offer(() -> traceMapper.insert(trace))) {
+            log.warn("llm_trace 队列已满，丢弃一条追踪记录: agent={}, kind={}", trace.getAgent(), trace.getKind());
+        }
+    }
+
+    /** 评分回写：入队 update 任务（单线程顺序执行，保证晚于同轮已入队的 insert） */
+    public void submitEvalWriteback(String traceId, int score) {
+        if (traceId == null || traceId.isBlank()) {
+            return;
+        }
+        if (!queue.offer(() -> traceMapper.updateEvalScoreByTraceId(traceId, score))) {
+            log.warn("llm_trace 队列已满，丢弃一次评分回写: traceId={}", traceId);
         }
     }
 
@@ -85,6 +102,7 @@ public class LlmTraceObservationHandler implements ObservationHandler<ChatModelO
         if (holderCtx != null) {
             trace.setAgent(holderCtx.getAgent());
             trace.setSessionId(holderCtx.getSessionId());
+            trace.setTraceId(holderCtx.getRoundTraceId());
         }
 
         if (context.getRequest() != null) {
@@ -154,8 +172,8 @@ public class LlmTraceObservationHandler implements ObservationHandler<ChatModelO
     private void writeLoop() {
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                LlmTrace trace = queue.take();
-                traceMapper.insert(trace);
+                Runnable task = queue.take();
+                task.run();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -173,11 +191,11 @@ public class LlmTraceObservationHandler implements ObservationHandler<ChatModelO
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        // 尽力落盘剩余记录
-        LlmTrace remaining;
+        // 尽力落盘剩余任务
+        Runnable remaining;
         while ((remaining = queue.poll()) != null) {
             try {
-                traceMapper.insert(remaining);
+                remaining.run();
             } catch (Exception ignored) {
                 break;
             }

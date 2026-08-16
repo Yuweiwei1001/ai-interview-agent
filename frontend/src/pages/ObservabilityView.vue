@@ -67,7 +67,7 @@ const errorRate = computed(() => {
 const agentLabels: Record<string, string> = {
   plan: '计划生成', technical: '八股出题', project: '项目出题', coding: '编程出题',
   evaluator: '答案评估', followup: '追问生成', summarizer: '对话摘要',
-  testcase: '测试用例', 'code-eval': '代码评估', unknown: '未知'
+  testcase: '测试用例', 'code-eval': '代码评估', retriever: '知识库检索', unknown: '未知'
 };
 function agentLabel(agent: string | null): string {
   if (!agent) return '未归因';
@@ -181,23 +181,32 @@ const sessionColumns: DataTableColumns<SessionTraceSummary> = [
               <n-tag size="small" :type="t.status === 'success' ? 'success' : 'error'">
                 {{ t.status === 'success' ? '成功' : '失败' }}
               </n-tag>
+              <n-tag v-if="t.kind === 'retrieval'" size="small" type="info">检索</n-tag>
               <span class="font-medium text-slate-800 text-sm">{{ agentLabel(t.agent) }}</span>
               <span class="text-xs text-slate-400">{{ t.model || '-' }}</span>
+              <n-tag v-if="t.evalScore != null" size="small" :type="t.evalScore >= 60 ? 'success' : 'warning'">
+                评分 {{ t.evalScore }}
+              </n-tag>
               <span class="ml-auto text-xs text-slate-400">{{ fmtTime(t.createdAt) }}</span>
             </div>
+            <div v-if="t.traceId" class="mt-1 text-xs text-slate-400">
+              轮次链路: <code class="bg-slate-100 rounded px-1">{{ t.traceId }}</code>
+            </div>
             <div class="flex items-center gap-4 mt-2 text-xs text-slate-500">
-              <span>Tokens: <b class="text-slate-700">{{ t.totalTokens.toLocaleString() }}</b>
-                （入 {{ t.promptTokens }} / 出 {{ t.completionTokens }}）</span>
+              <template v-if="t.kind !== 'retrieval'">
+                <span>Tokens: <b class="text-slate-700">{{ t.totalTokens.toLocaleString() }}</b>
+                  （入 {{ t.promptTokens }} / 出 {{ t.completionTokens }}）</span>
+                <span>成本: {{ fmtCost(t.estimatedCost) }}</span>
+              </template>
               <span>耗时: {{ fmtDuration(t.durationMs) }}</span>
-              <span>成本: {{ fmtCost(t.estimatedCost) }}</span>
             </div>
             <div v-if="t.errorMsg" class="mt-2 text-xs text-red-500 break-all">{{ t.errorMsg }}</div>
             <details v-if="t.promptExcerpt" class="mt-2">
-              <summary class="text-xs text-blue-600 cursor-pointer select-none">Prompt 摘录</summary>
+              <summary class="text-xs text-blue-600 cursor-pointer select-none">{{ t.kind === 'retrieval' ? '检索 Query' : 'Prompt 摘录' }}</summary>
               <pre class="mt-1 text-xs text-slate-600 whitespace-pre-wrap break-all bg-white rounded-lg p-2 border border-slate-100">{{ t.promptExcerpt }}</pre>
             </details>
             <details v-if="t.completionExcerpt" class="mt-1">
-              <summary class="text-xs text-blue-600 cursor-pointer select-none">回复摘录</summary>
+              <summary class="text-xs text-blue-600 cursor-pointer select-none">{{ t.kind === 'retrieval' ? '检索结果' : '回复摘录' }}</summary>
               <pre class="mt-1 text-xs text-slate-600 whitespace-pre-wrap break-all bg-white rounded-lg p-2 border border-slate-100">{{ t.completionExcerpt }}</pre>
             </details>
           </div>

@@ -3,7 +3,13 @@ import request from '../utils/request';
 export interface LlmTrace {
   id: number;
   sessionId: string | null;
+  /** 轮次关联 ID：同轮多次调用（出题/检索/评分/追问）共享 */
+  traceId: string | null;
   agent: string | null;
+  /** llm=LLM 调用 / retrieval=知识库检索 span */
+  kind: string;
+  /** 评分回写：本轮评估调整分 */
+  evalScore: number | null;
   model: string | null;
   promptTokens: number;
   completionTokens: number;

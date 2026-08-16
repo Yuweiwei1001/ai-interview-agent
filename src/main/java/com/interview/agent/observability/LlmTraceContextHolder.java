@@ -41,4 +41,14 @@ public final class LlmTraceContextHolder {
             HOLDER.set(current.withSessionId(sessionId));
         }
     }
+
+    /** 设置 sessionId + 轮次 traceId（保留已有 agent，无上下文时新建） */
+    public static void setSessionAndRound(String sessionId, String roundTraceId) {
+        LlmTraceContext current = HOLDER.get();
+        if (current == null) {
+            HOLDER.set(new LlmTraceContext(null, sessionId, roundTraceId));
+        } else {
+            HOLDER.set(current.withSessionId(sessionId).withRoundTraceId(roundTraceId));
+        }
+    }
 }

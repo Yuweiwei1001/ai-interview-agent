@@ -12,6 +12,7 @@ import com.interview.agent.interview.policy.BehaviorPolicy;
 import com.interview.agent.interview.policy.BehaviorPolicyFactory;
 import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePointService;
+import com.interview.agent.observability.LlmTraceObservationHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,11 +31,13 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
     private final AnswerEvaluator answerEvaluator;
     private final RoundPersistenceService roundPersistenceService;
     private final KnowledgeRetriever knowledgeRetriever;
+    private final LlmTraceObservationHandler traceHandler;
 
     public EvaluateNode(BehaviorPolicyFactory policyFactory, FollowUpGenerator followUpGenerator,
                         KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
                         TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
-                        RoundPersistenceService roundPersistenceService, KnowledgeRetriever knowledgeRetriever) {
+                        RoundPersistenceService roundPersistenceService, KnowledgeRetriever knowledgeRetriever,
+                        LlmTraceObservationHandler traceHandler) {
         this.policyFactory = policyFactory;
         this.followUpGenerator = followUpGenerator;
         this.knowledgePointService = knowledgePointService;
@@ -43,6 +46,7 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         this.answerEvaluator = answerEvaluator;
         this.roundPersistenceService = roundPersistenceService;
         this.knowledgeRetriever = knowledgeRetriever;
+        this.traceHandler = traceHandler;
     }
 
     @Override
@@ -78,6 +82,13 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
         int score = adjustScore(baseScore, policy);
         state.setCodingScore(score);
         evaluation.put("score", score);
+        // 评分回写：把本轮调整分写到该轮全部 llm_trace 行（含检索 span，按 roundTraceId 关联）；
+        // 入队异步执行，单线程顺序保证晚于同轮已入队的 insert；任何异常不影响主链路
+        try {
+            traceHandler.submitEvalWriteback(state.getRoundTraceId(), score);
+        } catch (Exception e) {
+            log.warn("评分回写 llm_trace 失败（已忽略）", e);
+        }
         // 知识点优先用 LLM 从题目+回答提取的具体概念；LLM 未输出时降级为关键词匹配兜底
         List<String> knowledgePoints = (llmKnowledgePoints != null && !llmKnowledgePoints.isEmpty())
                 ? llmKnowledgePoints
