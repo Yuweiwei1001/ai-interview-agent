@@ -198,7 +198,8 @@ function statusLabel(status: string) {
 
       <div v-else class="grid gap-4">
         <div v-for="kb in kbs" :key="kb.id"
-          class="bg-white rounded-2xl shadow-card p-4 sm:p-5 hover:shadow-card-hover transition-all duration-200">
+          class="bg-white rounded-2xl shadow-card p-4 sm:p-5 hover:shadow-card-hover transition-all duration-200 cursor-pointer"
+          @click="toggleDocs(kb)">
           <div class="flex items-start justify-between">
             <div class="flex-1 min-w-0">
               <h3 class="font-semibold text-slate-800">{{ kb.name }}</h3>
@@ -206,15 +207,15 @@ function statusLabel(status: string) {
               <p v-if="kb.description" class="text-sm text-slate-600 mt-2 leading-relaxed">{{ kb.description }}</p>
             </div>
             <div class="flex gap-2 ml-4 shrink-0">
-              <n-button size="small" secondary type="primary" @click="toggleDocs(kb)">
+              <n-button size="small" secondary type="primary" @click.stop="toggleDocs(kb)">
                 {{ activeKb?.id === kb.id ? '收起' : '文档管理' }}
               </n-button>
-              <n-button size="small" tertiary type="error" @click="handleDeleteKb(kb)">删除</n-button>
+              <n-button size="small" tertiary type="error" @click.stop="handleDeleteKb(kb)">删除</n-button>
             </div>
           </div>
 
-          <!-- 文档列表（展开区） -->
-          <div v-if="activeKb?.id === kb.id" class="mt-4 border-t border-slate-100 pt-4">
+          <!-- 文档列表（展开区）：阻止冒泡，点击列表内部不会误收起 -->
+          <div v-if="activeKb?.id === kb.id" class="mt-4 border-t border-slate-100 pt-4" @click.stop>
             <div class="flex items-center justify-between mb-3">
               <h4 class="text-sm font-semibold text-slate-700">文档列表</h4>
               <n-button size="small" type="primary" @click="handleAddDoc">添加文档</n-button>
