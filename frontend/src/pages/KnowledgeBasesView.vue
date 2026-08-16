@@ -88,6 +88,15 @@ async function openDocs(kb: KnowledgeBase) {
   await loadDocs();
 }
 
+/* 展开/收起切换：再次点击已展开知识库的按钮时收起文档列表 */
+function toggleDocs(kb: KnowledgeBase) {
+  if (activeKb.value?.id === kb.id) {
+    closeDocs();
+  } else {
+    openDocs(kb);
+  }
+}
+
 async function loadDocs() {
   if (!activeKb.value) return;
   loadingDocs.value = true;
@@ -197,7 +206,9 @@ function statusLabel(status: string) {
               <p v-if="kb.description" class="text-sm text-slate-600 mt-2 leading-relaxed">{{ kb.description }}</p>
             </div>
             <div class="flex gap-2 ml-4 shrink-0">
-              <n-button size="small" secondary type="primary" @click="openDocs(kb)">文档管理</n-button>
+              <n-button size="small" secondary type="primary" @click="toggleDocs(kb)">
+                {{ activeKb?.id === kb.id ? '收起' : '文档管理' }}
+              </n-button>
               <n-button size="small" tertiary type="error" @click="handleDeleteKb(kb)">删除</n-button>
             </div>
           </div>
