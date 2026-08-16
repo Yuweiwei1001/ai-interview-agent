@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { NInput, NButton, NSpin, useMessage } from 'naive-ui';
 import { getDocument, addDocument, updateDocument, getKbs, type KnowledgeBase } from '../api/knowledge';
 import MarkdownEditor from '../components/MarkdownEditor.vue';
+import BackButton from '../components/BackButton.vue';
 
 /**
  * 文档编辑页（参考 ThinkVerse knowledge/[id]/documents/[docId].vue）
@@ -81,14 +82,9 @@ async function handleSave(vectorize: boolean) {
 <template>
   <div class="min-h-screen bg-slate-50">
     <div class="max-w-[90vw] mx-auto px-6 py-4">
-      <!-- 返回 -->
+      <!-- 美化：页头返回导航（统一 BackButton 组件） -->
       <div class="flex items-center gap-4 mb-5">
-        <router-link
-          :to="{ path: '/knowledge-bases', query: { kb: kbId } }"
-          class="text-slate-400 hover:text-slate-600 text-sm transition-colors duration-200"
-        >
-          ← 返回知识库
-        </router-link>
+        <BackButton :to="{ path: '/knowledge-bases', query: { kb: kbId } }" label="返回知识库" />
       </div>
 
       <!-- 页头 -->

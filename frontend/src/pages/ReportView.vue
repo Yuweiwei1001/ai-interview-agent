@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { NProgress, NSpin, NAlert, NButton } from 'naive-ui';
 import { getReport, getSession, type InterviewReport } from '../api/interview';
 import request from '../utils/request';
+import BackButton from '../components/BackButton.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -159,11 +160,9 @@ const downloadReport = async () => {
 <template>
   <div class="min-h-screen bg-slate-50">
     <div class="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <!-- 美化：页头返回导航（统一 BackButton 组件） -->
       <div class="flex items-center gap-4 mb-6">
-        <button @click="router.push('/home')"
-          class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 transition-colors duration-200">
-          ← 返回
-        </button>
+        <BackButton to="/home" />
         <h2 class="text-2xl font-bold text-slate-800 tracking-tight">面试报告</h2>
       </div>
 

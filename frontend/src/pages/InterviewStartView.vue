@@ -6,6 +6,7 @@ import { getResumes, type Resume } from '../api/resume';
 import { getJds, type Jd } from '../api/jd';
 import { getKbs, type KnowledgeBase } from '../api/knowledge';
 import { createPlan, type InterviewPlan } from '../api/interview';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 const resumes = ref<Resume[]>([]);
@@ -84,9 +85,9 @@ function startInterview() {
 <template>
   <div class="min-h-screen bg-slate-50">
     <div class="max-w-3xl mx-auto px-4 sm:px-6 py-8">
-      <!-- 美化：页头返回导航 -->
+      <!-- 美化：页头返回导航（统一 BackButton 组件） -->
       <div class="flex items-center gap-4 mb-6">
-        <router-link to="/home" class="text-slate-400 hover:text-slate-600 text-sm transition-colors duration-200">← 返回首页</router-link>
+        <BackButton to="/home" label="返回首页" />
         <h2 class="text-2xl font-bold text-slate-800 tracking-tight">开始新面试</h2>
       </div>
 

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { NButton, NEmpty, NSpin } from 'naive-ui';
 import { getSessions, type InterviewSession } from '../api/interview';
 import { toDate } from '../utils/datetime';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 const sessions = ref<InterviewSession[]>([]);
@@ -51,10 +52,8 @@ function goCoding(s: InterviewSession) {
   <div class="min-h-screen bg-slate-50">
     <header class="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-slate-200/70">
       <div class="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-4">
-        <button @click="router.push('/home')"
-          class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 transition-colors duration-200">
-          ← 返回
-        </button>
+        <!-- 美化：统一 BackButton 组件 -->
+        <BackButton to="/home" />
         <h1 class="text-lg font-bold text-slate-800 tracking-tight">面试记录</h1>
         <span class="text-sm text-slate-400">{{ sessions.length ? `${sessions.length} 场` : '' }}</span>
         <div class="flex-1"></div>

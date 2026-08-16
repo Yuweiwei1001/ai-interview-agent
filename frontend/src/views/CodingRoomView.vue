@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NSelect, NButton, NAlert, NProgress } from 'naive-ui';
 import CodeEditor from '../components/CodeEditor.vue';
+import BackButton from '../components/BackButton.vue';
 import { runCode, submitCode, type TestRunResult } from '../api/coding';
 import { SseClient } from '../utils/sse';
 
@@ -113,9 +114,6 @@ async function handleSubmit() {
   }
 }
 
-function goBack() {
-  router.push('/home');
-}
 </script>
 
 <template>
@@ -125,10 +123,8 @@ function goBack() {
     <!-- 美化：毛玻璃顶栏，窄屏自动换行 -->
     <header class="bg-white/80 backdrop-blur border-b border-slate-200/70 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
       <div class="flex items-center gap-4">
-        <button @click="goBack"
-          class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors duration-200">
-          ← 返回
-        </button>
+        <!-- 美化：统一 BackButton 组件 -->
+        <BackButton to="/home" />
         <h2 class="text-lg font-bold text-slate-800 tracking-tight whitespace-nowrap">编程题</h2>
         <n-select v-model:value="language" :options="languageOptions" size="small" class="w-28" />
       </div>

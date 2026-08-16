@@ -7,6 +7,7 @@ import {
   listDocuments, deleteDocument,
   type KnowledgeBase, type KnowledgeDocument
 } from '../api/knowledge';
+import BackButton from '../components/BackButton.vue';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -180,8 +181,9 @@ function statusLabel(status: string) {
 <template>
   <div class="min-h-screen bg-slate-50">
     <div class="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <!-- 美化：页头返回导航（统一 BackButton 组件） -->
       <div class="flex items-center gap-4 mb-6">
-        <router-link to="/home" class="text-slate-400 hover:text-slate-600 text-sm transition-colors duration-200">← 返回首页</router-link>
+        <BackButton to="/home" label="返回首页" />
       </div>
 
       <div class="flex items-center justify-between mb-6">

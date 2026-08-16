@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { NModal, NEmpty, NSpin, NButton, NInput, useMessage, useDialog } from 'naive-ui';
 import { getResumes, deleteResume, uploadResume, updateResume, type Resume } from '../api/resume';
+import BackButton from '../components/BackButton.vue';
 
 const message = useMessage();
 const dialog = useDialog();
@@ -100,9 +101,9 @@ function formatSize(bytes: number) {
 <template>
   <div class="min-h-screen bg-slate-50">
     <div class="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-      <!-- 美化：页头返回导航 -->
+      <!-- 美化：页头返回导航（统一 BackButton 组件） -->
       <div class="flex items-center gap-4 mb-6">
-        <router-link to="/home" class="text-slate-400 hover:text-slate-600 text-sm transition-colors duration-200">← 返回首页</router-link>
+        <BackButton to="/home" label="返回首页" />
       </div>
 
       <div class="flex items-center justify-between mb-6">

@@ -6,6 +6,7 @@ import { SseClient, type SseEvent } from '../utils/sse';
 import { getSession } from '../api/interview';
 import { toDate } from '../utils/datetime';
 import ChatBubble from '../components/ChatBubble.vue';
+import BackButton from '../components/BackButton.vue';
 
 interface Message {
   role: 'assistant' | 'user';
@@ -370,10 +371,6 @@ async function submitAnswer() {
   }
 }
 
-function goBack() {
-  router.push('/home');
-}
-
 /* 结束面试前增加确认，防止误触（确认后逻辑不变） */
 function confirmEndInterview() {
   dialog.warning({
@@ -408,10 +405,8 @@ function goToReport() {
       <div class="max-w-4xl mx-auto">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-4 min-w-0">
-            <button @click="goBack"
-              class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors duration-200">
-              ← 返回
-            </button>
+            <!-- 美化：统一 BackButton 组件 -->
+            <BackButton to="/home" />
             <h2 class="text-lg font-bold text-slate-800 tracking-tight whitespace-nowrap">{{ isReview ? '面试回顾' : '面试进行中' }}</h2>
             <span v-if="!isReview" class="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg tabular-nums shrink-0">
               ⏱ {{ elapsedSeconds }}

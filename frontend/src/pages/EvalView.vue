@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, onUnmounted } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { NButton, NSwitch, NSpin, NEmpty } from 'naive-ui';
 import {
   listEvalCases, startEvalRun, getEvalRun,
   type EvalCaseSummary, type EvalRun
 } from '../api/eval';
+import BackButton from '../components/BackButton.vue';
 
-const router = useRouter();
 const route = useRoute();
 
 const cases = ref<EvalCaseSummary[]>([]);
@@ -140,10 +140,8 @@ function metricCls(good: boolean): string {
   <div class="min-h-screen bg-slate-50">
     <header class="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-slate-200/70">
       <div class="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-4">
-        <button @click="router.push('/home')"
-          class="text-slate-400 hover:text-slate-600 text-sm flex items-center gap-1 transition-colors duration-200">
-          ← 返回
-        </button>
+        <!-- 美化：统一 BackButton 组件 -->
+        <BackButton to="/home" />
         <h1 class="text-lg font-bold text-slate-800 tracking-tight">Agent 评测</h1>
         <span class="text-xs text-slate-400">golden 数据集驱动模拟面试，评估编排 / 出题 / 评分质量</span>
       </div>
