@@ -5,6 +5,8 @@
     "lib": ["ES2023"],
     "module": "ESNext",
     "skipLibCheck": true,
+    /* 修复：vite.config.ts 使用 process.env，需显式引入 node 全局类型（@types/node 已在 devDependencies） */
+    "types": ["node"],
 
     /* Bundler mode */
     "moduleResolution": "bundler",
