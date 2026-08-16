@@ -3,6 +3,7 @@ package com.interview.agent.interview;
 import com.interview.agent.common.context.BaseContext;
 import com.interview.agent.common.exception.BaseException;
 import com.interview.agent.common.exception.InterviewTerminatedException;
+import com.interview.agent.common.exception.InterviewTimeoutException;
 import com.interview.agent.interview.agent.tool.AskQuestionTool;
 import com.interview.agent.interview.graph.InterviewGraphBuilder;
 import com.interview.agent.interview.graph.InterviewState;
@@ -203,6 +204,9 @@ public class InterviewService {
             } catch (InterviewTerminatedException e) {
                 log.info("面试已被终止: sessionId={}", sessionId);
                 // 不发送 ERROR，保持 interrupted 状态
+            } catch (InterviewTimeoutException e) {
+                // 单题等待超时：AskQuestionTool 已完成收尾（报告 + COMPLETE），图执行直接停止，不发 ERROR
+                log.info("面试因等待回答超时结束: sessionId={}", sessionId);
             } catch (Exception e) {
                 log.error("面试执行失败: sessionId={}", sessionId, e);
                 sessionMapper.updateStatus(sessionId, "interrupted");
@@ -244,6 +248,8 @@ public class InterviewService {
 
             } catch (InterviewTerminatedException e) {
                 log.info("面试已被终止，忽略恢复执行: sessionId={}", sessionId);
+            } catch (InterviewTimeoutException e) {
+                log.info("恢复执行因等待回答超时结束: sessionId={}", sessionId);
             } catch (Exception e) {
                 log.error("恢复 Coding 面试失败: sessionId={}", sessionId, e);
                 sessionMapper.updateStatus(sessionId, "interrupted");
@@ -358,6 +364,26 @@ public class InterviewService {
         }
 
         sseRegistry.sendEvent(sessionId, "COMPLETE", "面试已手动结束");
+        sseRegistry.complete(sessionId);
+    }
+
+    /**
+     * 单题等待超时自动结束（由 AskQuestionTool 在图执行线程内回调，无请求上下文，不做用户校验）。
+     * 语义与手动结束一致：终止等待、置 interrupted、汇总已完成轮次生成报告。
+     */
+    public void endInterviewOnTimeout(String sessionId) {
+        askQuestionTool.cancel(sessionId);
+        sessionMapper.updateStatus(sessionId, "interrupted");
+        try {
+            long roundCount = roundMapper.countBySessionId(sessionId);
+            if (roundCount > 0) {
+                reportGenerator.generateReport(sessionId);
+                sseRegistry.sendEvent(sessionId, "REPORT_READY", "报告已生成");
+            }
+        } catch (Exception e) {
+            log.warn("超时结束生成报告失败: sessionId={}", sessionId, e);
+        }
+        sseRegistry.sendEvent(sessionId, "COMPLETE", "面试因单题等待超时已结束");
         sseRegistry.complete(sessionId);
     }
 

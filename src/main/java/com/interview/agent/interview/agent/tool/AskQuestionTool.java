@@ -1,11 +1,15 @@
 package com.interview.agent.interview.agent.tool;
 
 import com.interview.agent.common.exception.InterviewTerminatedException;
+import com.interview.agent.common.exception.InterviewTimeoutException;
+import com.interview.agent.interview.InterviewService;
 import com.interview.agent.interview.InterviewSessionMapper;
 import com.interview.agent.sse.SseRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -22,11 +26,19 @@ public class AskQuestionTool {
     private final SseRegistry sseRegistry;
     private final InterviewSessionMapper sessionMapper;
     private final ObjectMapper objectMapper;
+    /** @Lazy 打破与 InterviewService 的构造器循环依赖；仅超时收尾时回调 */
+    private final InterviewService interviewService;
+    /** 单题等待回答超时（分钟），可配置便于测试；默认 30 */
+    private final long answerTimeoutMinutes;
 
-    public AskQuestionTool(SseRegistry sseRegistry, InterviewSessionMapper sessionMapper, ObjectMapper objectMapper) {
+    public AskQuestionTool(SseRegistry sseRegistry, InterviewSessionMapper sessionMapper, ObjectMapper objectMapper,
+                           @Lazy InterviewService interviewService,
+                           @Value("${interview.answer-timeout-minutes:30}") long answerTimeoutMinutes) {
         this.sseRegistry = sseRegistry;
         this.sessionMapper = sessionMapper;
         this.objectMapper = objectMapper;
+        this.interviewService = interviewService;
+        this.answerTimeoutMinutes = answerTimeoutMinutes;
     }
 
     /**
@@ -76,8 +88,8 @@ public class AskQuestionTool {
         }
 
         try {
-            // 阻塞等待回答，最多30分钟
-            String answer = future.get(30, TimeUnit.MINUTES);
+            // 阻塞等待回答，默认最多 30 分钟（interview.answer-timeout-minutes 可配置）
+            String answer = future.get(answerTimeoutMinutes, TimeUnit.MINUTES);
             // 回答已收到，清除当前题目标记
             sessionMapper.updateCurrentQuestion(sessionId, null);
             return answer;
@@ -89,7 +101,15 @@ public class AskQuestionTool {
             if (terminatedSessions.contains(sessionId)) {
                 throw new InterviewTerminatedException("面试已终止: " + sessionId);
             }
-            return "【超时未回答】";
+            // 单题超时：不再用「【超时未回答】」占位继续评估（会产生 0 分隐藏轮次与迟到回答错配），
+            // 而是终止面试并自动收尾（已完成轮次生成报告）；迟到回答因无等待中的 future 自然被拒
+            sseRegistry.sendEvent(sessionId, "ANSWER_TIMEOUT", "单题等待超时，面试已结束");
+            try {
+                interviewService.endInterviewOnTimeout(sessionId);
+            } catch (Exception ex) {
+                log.warn("超时收尾失败（已忽略）: sessionId={}", sessionId, ex);
+            }
+            throw new InterviewTimeoutException("等待回答超时: " + sessionId);
         }
     }
 

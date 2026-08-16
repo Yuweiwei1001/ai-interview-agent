@@ -239,6 +239,12 @@ function handleSseEvent(event: SseEvent) {
       error.value = event.data;
       thinking.value = false;
       break;
+    case 'ANSWER_TIMEOUT':
+      // 单题等待超时：后端已自动结束面试并生成报告，展示完成态（后续 COMPLETE 会补充结束原因）
+      completed.value = true;
+      thinking.value = false;
+      completeReason.value = event.data || '单题等待超时，面试已结束';
+      break;
   }
 }
 
@@ -307,8 +313,17 @@ function startInterview() {
 
   sseClient = new SseClient();
   sseClient.connect('/api/interviews/start', body, handleSseEvent, () => {
-    error.value = '连接失败';
-    thinking.value = false;
+    if (sessionId.value) {
+      // 面试进行中 SSE 流断开（网络波动/代理断连等）：切 GET 重连通道继续收事件（指数退避自动重连），
+      // 断连期间丢失的事件由轮询兜底（currentQuestion/会话状态）补偿，避免面试卡死
+      sseClient?.connectGet(`/api/interviews/${sessionId.value}/stream`, handleSseEvent, () => {
+        error.value = '连接失败';
+        thinking.value = false;
+      });
+    } else {
+      error.value = '连接失败';
+      thinking.value = false;
+    }
   });
 }
 

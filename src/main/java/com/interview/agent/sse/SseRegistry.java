@@ -5,15 +5,49 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 @Component
 public class SseRegistry {
     private static final Logger log = LoggerFactory.getLogger(SseRegistry.class);
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
-    private static final long SSE_TIMEOUT = 30 * 60 * 1000L; // 30分钟
+    // 连接存活上限 2 小时：单题等待 30 分钟 × 多轮，面试总时长轻松超过 30 分钟；
+    // 旧值 30 分钟与单题等待上限相同，长面试必然触发 AsyncRequestTimeout 断连（后续事件全部丢弃导致前端卡死）
+    private static final long SSE_TIMEOUT = 120 * 60 * 1000L; // 2小时
+
+    /** 心跳调度器：每 15 秒向所有连接发 SSE 注释帧，防代理/容器空闲断连，并及时暴露死连接 */
+    private final ScheduledExecutorService heartbeat = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "sse-heartbeat");
+        t.setDaemon(true);
+        return t;
+    });
+
+    public SseRegistry() {
+        heartbeat.scheduleWithFixedDelay(this::sendHeartbeat, 15, 15, TimeUnit.SECONDS);
+    }
+
+    private void sendHeartbeat() {
+        emitters.forEach((sessionId, emitter) -> {
+            try {
+                // 注释帧（以 : 开头）不产生前端事件，仅保活；连接已死则抛异常走清理
+                emitter.send(SseEmitter.event().comment("ping"));
+            } catch (Exception e) {
+                log.info("SSE 心跳失败，清理死连接: sessionId={}", sessionId);
+                emitters.remove(sessionId, emitter);
+            }
+        });
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        heartbeat.shutdownNow();
+    }
 
     public SseEmitter register(String sessionId) {
         // 如果已有连接，先完成旧连接
