@@ -7,10 +7,15 @@ const props = defineProps<{
 }>();
 
 /* ---------- 标题提取 ----------
- * 首行含「：」且分隔位 ≤ 20 → 冒号前为标题；
+ * 首行含「：」且分隔位 ≤ 20 → 冒号前为标题，冒号后内容并入正文；
  * 首行形如「1. 两数之和」（≤30 字）→ 整行为标题；
  * 首行 ≤ 16 字 → 整行为标题；
  * 否则标题「编程题」，全部文本作为正文。 */
+/* 剥离标题行的 markdown 标记（## / ** 等），避免字面渲染 */
+function stripMd(s: string): string {
+  return s.replace(/^#{1,6}\s*/, '').replace(/^\*\*/, '').replace(/\*\*$/, '').trim();
+}
+
 function splitTitle(raw: string): { title: string; body: string } {
   const text = raw.trim();
   if (!text) return { title: '编程题', body: '' };
@@ -21,13 +26,14 @@ function splitTitle(raw: string): { title: string; body: string } {
   if (firstLine.length <= 40) {
     const colonIdx = firstLine.indexOf('：');
     if (colonIdx > 0 && colonIdx <= 20) {
-      return { title: firstLine.slice(0, colonIdx).trim(), body: rest };
+      const after = firstLine.slice(colonIdx + 1).trim();
+      return { title: stripMd(firstLine.slice(0, colonIdx).trim()), body: [after, rest].filter(Boolean).join('\n') };
     }
     if (/^\d{1,3}[.、]\s*\S/.test(firstLine) && firstLine.length <= 30) {
-      return { title: firstLine.replace('、', '.'), body: rest };
+      return { title: stripMd(firstLine.replace('、', '.')), body: rest };
     }
     if (firstLine.length <= 16) {
-      return { title: firstLine, body: rest };
+      return { title: stripMd(firstLine), body: rest };
     }
   }
   return { title: '编程题', body: text };
@@ -135,6 +141,7 @@ const parsed = computed(() => {
 .q-md :deep(p) { margin-bottom: 10px; }
 .q-md :deep(p:last-child) { margin-bottom: 0; }
 .q-md :deep(code) { background: #f1f5f9; border-radius: 4px; padding: 1px 5px; font-size: 13px; color: #be185d; }
+.q-md :deep(pre code) { background: none; padding: 0; color: inherit; font-size: inherit; border-radius: 0; }
 .q-md :deep(pre) { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; overflow-x: auto; font-size: 13px; }
 .q-md :deep(ul), .q-md :deep(ol) { padding-left: 20px; margin-bottom: 10px; }
 .q-md :deep(strong) { color: #1e293b; }
