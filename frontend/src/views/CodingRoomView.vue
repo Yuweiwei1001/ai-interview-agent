@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { NSelect, NButton, NAlert, NProgress } from 'naive-ui';
+import { NSelect, NButton, NSplit } from 'naive-ui';
 import CodeEditor from '../components/CodeEditor.vue';
 import BackButton from '../components/BackButton.vue';
+import QuestionPanel from '../components/QuestionPanel.vue';
+import CodingResultPanel from '../components/CodingResultPanel.vue';
 import { runCode, submitCode, type TestRunResult } from '../api/coding';
 import { SseClient } from '../utils/sse';
 
@@ -11,7 +13,7 @@ const route = useRoute();
 const router = useRouter();
 
 const sessionId = route.query.sessionId as string;
-const code = ref('// 请在此处编写代码\nimport java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n        System.out.println("Hello, Interview!");\n    }\n}');
+const code = ref('// 请在此处编写代码\nimport java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, Interview!");\n    }\n}');
 const language = ref('java');
 const output = ref('');
 const testResults = ref<{ name: string; passed: boolean; detail: string; source?: string }[]>([]);
@@ -21,13 +23,21 @@ const submitting = ref(false);
 const question = ref((route.query.question as string) || '编程题');
 const retryHint = ref('');
 const errorMsg = ref('');
+const sseConnected = ref(false);
 const questionCollapsed = ref(false);
 
-/* 美化：语言下拉选项 */
 const languageOptions = [
   { label: 'Java', value: 'java' },
   { label: 'Python', value: 'python' }
 ];
+
+/* 编辑器 Tab 条文件名：随语言切换（力扣惯例） */
+const fileLabel = computed(() => (language.value === 'python' ? 'main.py' : 'Main.java'));
+
+/* 窄屏（<768px）判定：纵向堆叠，不渲染 NSplit */
+const mq = window.matchMedia('(max-width: 767px)');
+const isNarrow = ref(mq.matches);
+const onMqChange = (e: MediaQueryListEvent) => { isNarrow.value = e.matches; };
 
 let sseClient: SseClient | null = null;
 
@@ -43,9 +53,11 @@ function parseQuestionPayload(data: string): { question: string; questionNumber?
 }
 
 onMounted(() => {
+  mq.addEventListener('change', onMqChange);
   if (sessionId) {
     sseClient = new SseClient();
     sseClient.connectGet(`/api/interviews/${sessionId}/stream`, (event) => {
+      sseConnected.value = true; // 收到事件即视为连接正常
       switch (event.event) {
         case 'WAITING_CODE': {
           // 编码页收到的 WAITING_CODE 只会是「代码未达标，挂起等待重试」的提示
@@ -71,12 +83,16 @@ onMounted(() => {
           break;
       }
     }, () => {
+      sseConnected.value = false;
       errorMsg.value = 'SSE 连接失败，请返回重进';
     });
   }
 });
 
-onUnmounted(() => { sseClient?.disconnect(); });
+onUnmounted(() => {
+  mq.removeEventListener('change', onMqChange);
+  sseClient?.disconnect();
+});
 
 async function handleRun() {
   running.value = true;
@@ -91,6 +107,7 @@ async function handleRun() {
     if (data.error) output.value = data.error;
   } catch (e: any) {
     output.value = e.response?.data?.msg || '运行失败';
+    errorMsg.value = output.value;
   } finally {
     running.value = false;
   }
@@ -105,109 +122,87 @@ async function handleSubmit() {
   try {
     await submitCode(sessionId, code.value, language.value, question.value);
     // 提交成功后立即进入报告页：评估与报告在服务端异步生成，
-    // 报告页展示“生成中”并轮询结果，用户可直接离开
+    // 报告页展示"生成中"并轮询结果，用户可直接离开
     router.push(`/report/${sessionId}`);
   } catch (e: any) {
     output.value = e.response?.data?.msg || '提交失败';
+    errorMsg.value = output.value;
   } finally {
     submitting.value = false;
   }
 }
-
 </script>
 
 <template>
-  <!-- 美化：移动端允许页面滚动，桌面端锁定整屏 -->
-  <div class="flex flex-col min-h-screen md:h-screen bg-slate-50">
-    <!-- Header -->
-    <!-- 美化：毛玻璃顶栏，窄屏自动换行 -->
-    <header class="bg-white/80 backdrop-blur border-b border-slate-200/70 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2 shrink-0">
-      <div class="flex items-center gap-4">
-        <!-- 美化：统一 BackButton 组件 -->
-        <BackButton to="/home" />
-        <h2 class="text-lg font-bold text-slate-800 tracking-tight whitespace-nowrap">编程题</h2>
-        <n-select v-model:value="language" :options="languageOptions" size="small" class="w-28" />
-      </div>
-      <div class="flex gap-3">
-        <n-button type="primary" secondary :loading="running" @click="handleRun">
-          {{ running ? '运行中...' : '运行' }}
-        </n-button>
-        <n-button type="success" :loading="submitting" @click="handleSubmit">
-          {{ submitting ? '提交中...' : '提交' }}
-        </n-button>
-      </div>
+  <div class="flex flex-col h-screen bg-slate-100">
+    <!-- 顶栏 -->
+    <header class="h-12 shrink-0 flex items-center gap-3 px-4 bg-white border-b border-slate-200">
+      <BackButton to="/home" />
+      <h2 class="text-base font-semibold text-slate-800 whitespace-nowrap">编程题</h2>
+      <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500 whitespace-nowrap">面试环节 3/3</span>
+      <span class="ml-auto flex items-center gap-1.5 text-xs whitespace-nowrap"
+        :class="sseConnected ? 'text-emerald-600' : 'text-red-500'">
+        <span class="w-2 h-2 rounded-full" :class="sseConnected ? 'bg-emerald-500' : 'bg-red-500'"></span>
+        {{ sseConnected ? '已连接' : '未连接' }}
+      </span>
     </header>
 
-    <!-- 题目内容（可折叠） -->
-    <div class="bg-white border-b border-slate-200/70 shrink-0">
-      <button @click="questionCollapsed = !questionCollapsed"
-        class="w-full px-4 sm:px-6 py-2.5 flex items-center justify-between text-sm text-slate-500 hover:bg-slate-50 transition-colors duration-200">
-        <span class="font-semibold text-slate-700">题目</span>
-        <span class="text-xs">{{ questionCollapsed ? '展开 ▶' : '收起 ▼' }}</span>
-      </button>
-      <div v-show="!questionCollapsed" class="px-4 sm:px-6 pb-4 max-h-40 overflow-y-auto">
-        <p class="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{{ question }}</p>
-      </div>
-    </div>
-
-    <!-- 美化：响应式双栏——桌面左右布局，窄屏纵向堆叠 -->
-    <div class="flex-1 flex flex-col md:flex-row md:min-h-0">
-      <!-- 编辑器区域 -->
-      <div class="h-[55vh] md:h-auto md:flex-1 p-4 min-h-0">
-        <div class="h-full">
-          <CodeEditor v-model="code" :language="language" />
-        </div>
-      </div>
-
-      <!-- 结果面板 -->
-      <div class="w-full md:w-96 lg:w-[26rem] shrink-0 border-t md:border-t-0 md:border-l border-slate-200/70 bg-white p-4 sm:p-5 md:overflow-y-auto">
-        <h3 class="font-bold text-slate-800 mb-4">运行结果</h3>
-
-        <!-- 代码未达标的重试提示 -->
-        <n-alert v-if="retryHint" type="warning" title="代码未通过评估，请修改后重新提交" :bordered="false" class="rounded-xl mb-4">
-          {{ retryHint }}
-        </n-alert>
-
-        <!-- 错误提示 -->
-        <n-alert v-if="errorMsg" type="error" :bordered="false" class="rounded-xl mb-4">{{ errorMsg }}</n-alert>
-
-        <!-- 输出 -->
-        <div class="mb-5">
-          <h4 class="text-sm font-medium text-slate-600 mb-2">控制台输出</h4>
-          <pre class="bg-slate-900 text-green-400 p-3 rounded-xl text-sm overflow-x-auto min-h-[60px] max-h-[200px] overflow-y-auto leading-relaxed">{{ output || '点击"运行"查看输出' }}</pre>
-        </div>
-
-        <!-- 通过率 -->
-        <div v-if="passRate !== null" class="mb-5">
-          <h4 class="text-sm font-medium text-slate-600 mb-2">测试通过率</h4>
-          <!-- 美化：通过率升级为 n-progress 组件 -->
-          <n-progress type="line" :percentage="Math.min(passRate, 100)"
-            :status="passRate >= 60 ? 'success' : 'error'" :height="10" border-radius="5px" />
-        </div>
-
-        <!-- 测试结果 -->
-        <div v-if="testResults.length > 0">
-          <h4 class="text-sm font-medium text-slate-600 mb-2">测试用例</h4>
-          <div class="space-y-2">
-            <!-- 美化：用例卡片统一描边 + 圆角 -->
-            <div v-for="(tr, i) in testResults" :key="i"
-              class="flex items-start gap-2 p-3 rounded-xl border"
-              :class="tr.passed ? 'bg-green-50/70 border-green-100' : 'bg-red-50/70 border-red-100'">
-              <span class="text-lg leading-none mt-0.5" :class="tr.passed ? 'text-green-600' : 'text-red-600'">
-                {{ tr.passed ? '✓' : '✗' }}
-              </span>
-              <div class="min-w-0">
-                <p class="text-sm font-medium" :class="tr.passed ? 'text-green-800' : 'text-red-800'">
-                  {{ tr.name }}
-                  <span v-if="tr.source === 'dynamic'"
-                    class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-600 align-middle">动态</span>
-                </p>
-                <p class="text-xs text-slate-500 break-words mt-0.5">{{ tr.detail }}</p>
+    <!-- 桌面端：NSplit 左右分栏 -->
+    <div v-if="!isNarrow" class="flex-1 min-h-0">
+      <n-split direction="horizontal" :default-size="0.42" :min="0.25" :max="0.65" class="h-full">
+        <template #1>
+          <div class="h-full bg-white overflow-y-auto">
+            <QuestionPanel :question="question" />
+          </div>
+        </template>
+        <template #2>
+          <div class="h-full min-w-0 flex flex-col bg-slate-900">
+            <!-- 编辑器 Tab 条 -->
+            <div class="h-10 shrink-0 flex items-center gap-2 px-3 bg-slate-800 text-slate-200">
+              <span class="self-stretch flex items-center px-3 bg-slate-900 text-white font-mono text-xs">{{ fileLabel }}</span>
+              <n-select v-model:value="language" :options="languageOptions" size="small" class="w-28" />
+              <div class="ml-auto flex gap-2">
+                <n-button size="small" :loading="running" @click="handleRun">▷ 运行</n-button>
+                <n-button size="small" type="success" :loading="submitting" @click="handleSubmit">提交</n-button>
               </div>
             </div>
+            <div class="flex-1 min-h-0">
+              <CodeEditor v-model="code" :language="language" bare />
+            </div>
+            <CodingResultPanel :test-results="testResults" :pass-rate="passRate" :output="output"
+              :retry-hint="retryHint" :error-msg="errorMsg" :running="running" />
           </div>
+        </template>
+      </n-split>
+    </div>
+
+    <!-- 窄屏：纵向堆叠 -->
+    <div v-else class="flex-1 min-h-0 overflow-y-auto flex flex-col">
+      <div class="bg-white border-b border-slate-200 shrink-0">
+        <button @click="questionCollapsed = !questionCollapsed"
+          class="w-full px-4 py-2.5 flex items-center justify-between text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+          <span class="font-semibold">题目</span>
+          <span class="text-xs text-slate-400">{{ questionCollapsed ? '展开 ▶' : '收起 ▼' }}</span>
+        </button>
+        <div v-show="!questionCollapsed" class="max-h-64 overflow-y-auto border-t border-slate-100">
+          <QuestionPanel :question="question" />
         </div>
       </div>
+      <div class="h-[55vh] shrink-0 flex flex-col bg-slate-900">
+        <div class="h-10 shrink-0 flex items-center gap-2 px-3 bg-slate-800 text-slate-200">
+          <span class="self-stretch flex items-center px-3 bg-slate-900 text-white font-mono text-xs">{{ fileLabel }}</span>
+          <n-select v-model:value="language" :options="languageOptions" size="small" class="w-28" />
+          <div class="ml-auto flex gap-2">
+            <n-button size="small" :loading="running" @click="handleRun">▷ 运行</n-button>
+            <n-button size="small" type="success" :loading="submitting" @click="handleSubmit">提交</n-button>
+          </div>
+        </div>
+        <div class="flex-1 min-h-0">
+          <CodeEditor v-model="code" :language="language" bare />
+        </div>
+      </div>
+      <CodingResultPanel :test-results="testResults" :pass-rate="passRate" :output="output"
+        :retry-hint="retryHint" :error-msg="errorMsg" :running="running" />
     </div>
   </div>
 </template>
