@@ -5,6 +5,7 @@ const props = defineProps<{
   modelValue: string;
   language?: string;
   readonly?: boolean;
+  bare?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -75,6 +76,7 @@ defineExpose({ getValue, setValue });
 </script>
 
 <template>
-  <!-- 美化：容器统一圆角/描边/阴影体系 -->
-  <div ref="editorContainer" class="h-full w-full border border-slate-200 rounded-xl overflow-hidden shadow-card"></div>
+  <!-- bare 模式：无外框装饰，用于贴合力扣式编辑器 Tab 条的一体化布局 -->
+  <div ref="editorContainer" class="h-full w-full overflow-hidden"
+    :class="bare ? '' : 'border border-slate-200 rounded-xl shadow-card'"></div>
 </template>
