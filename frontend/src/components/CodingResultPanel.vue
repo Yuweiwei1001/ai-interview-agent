@@ -17,8 +17,10 @@ const activeTab = ref<'tests' | 'console'>('tests');
 
 /* 默认折叠；运行发起 / 重试提示 / 错误出现时自动展开 */
 watch(() => props.running, (v) => { if (v) expanded.value = true; });
-watch(() => props.retryHint, (v) => { if (v) expanded.value = true; });
-watch(() => props.errorMsg, (v) => { if (v) expanded.value = true; });
+/* v-if 重建后 expanded 会重置；immediate 兜底：初挂载时若提示已非空则自动展开 */
+watch([() => props.retryHint, () => props.errorMsg], ([rh, em]) => {
+  if (rh || em) expanded.value = true;
+}, { immediate: true });
 
 const passedCount = computed(() => props.testResults.filter(t => t.passed).length);
 const allPassed = computed(() => props.testResults.length > 0 && passedCount.value === props.testResults.length);
@@ -57,7 +59,7 @@ const statusText = computed(() => {
 
       <div class="max-h-56 overflow-y-auto p-4">
         <template v-if="activeTab === 'tests'">
-          <div v-if="passRate !== null" class="mb-3">
+          <div v-if="passRate !== null && testResults.length > 0" class="mb-3">
             <n-progress type="line" :percentage="Math.min(passRate, 100)"
               :status="passRate >= 60 ? 'success' : 'error'" :height="8" border-radius="4px" />
           </div>
