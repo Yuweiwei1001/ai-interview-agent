@@ -44,8 +44,8 @@ const statusText = computed(() => {
       <span v-else-if="running" class="text-slate-400">运行中…</span>
     </button>
 
-    <!-- 展开内容 -->
-    <div v-show="expanded">
+    <!-- 展开内容：总高不超过 #2 pane 的 60%，保证编辑器至少 40% 可用 -->
+    <div v-show="expanded" class="max-h-[60%] overflow-y-auto">
       <n-alert v-if="retryHint" type="warning" title="代码未通过评估，请修改后重新提交"
         :bordered="false" class="mx-4 mb-2 rounded-lg">
         {{ retryHint }}

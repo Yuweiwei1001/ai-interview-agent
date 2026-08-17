@@ -6,7 +6,7 @@ import CodeEditor from '../components/CodeEditor.vue';
 import BackButton from '../components/BackButton.vue';
 import QuestionPanel from '../components/QuestionPanel.vue';
 import CodingResultPanel from '../components/CodingResultPanel.vue';
-import { runCode, submitCode, type TestRunResult } from '../api/coding';
+import { runCode, submitCode, type TestRunResult, type TestCaseResult } from '../api/coding';
 import { SseClient } from '../utils/sse';
 
 const route = useRoute();
@@ -16,7 +16,7 @@ const sessionId = route.query.sessionId as string;
 const code = ref('// 请在此处编写代码\nimport java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, Interview!");\n    }\n}');
 const language = ref('java');
 const output = ref('');
-const testResults = ref<{ name: string; passed: boolean; detail: string; source?: string }[]>([]);
+const testResults = ref<TestCaseResult[]>([]);
 const passRate = ref<number | null>(null);
 const running = ref(false);
 const submitting = ref(false);
@@ -24,6 +24,7 @@ const question = ref((route.query.question as string) || '编程题');
 const retryHint = ref('');
 const errorMsg = ref('');
 const sseConnected = ref(false);
+const sseDisconnected = ref(false);
 const questionCollapsed = ref(false);
 
 const languageOptions = [
@@ -57,7 +58,6 @@ onMounted(() => {
   if (sessionId) {
     sseClient = new SseClient();
     sseClient.connectGet(`/api/interviews/${sessionId}/stream`, (event) => {
-      sseConnected.value = true; // 收到事件即视为连接正常
       switch (event.event) {
         case 'WAITING_CODE': {
           // 编码页收到的 WAITING_CODE 只会是「代码未达标，挂起等待重试」的提示
@@ -84,7 +84,12 @@ onMounted(() => {
       }
     }, () => {
       sseConnected.value = false;
-      errorMsg.value = 'SSE 连接失败，请返回重进';
+      sseDisconnected.value = true;
+      errorMsg.value = 'SSE 连接失败，正在尝试重连…若长时间无响应请返回重进';
+    }, () => {
+      // 活性信号：任意 chunk（含注释帧心跳）即视为连接正常
+      sseConnected.value = true;
+      sseDisconnected.value = false;
     });
   }
 });
@@ -143,7 +148,7 @@ async function handleSubmit() {
       <span class="ml-auto flex items-center gap-1.5 text-xs whitespace-nowrap"
         :class="sseConnected ? 'text-emerald-600' : 'text-red-500'">
         <span class="w-2 h-2 rounded-full" :class="sseConnected ? 'bg-emerald-500' : 'bg-red-500'"></span>
-        {{ sseConnected ? '已连接' : '未连接' }}
+        {{ sseConnected ? '已连接' : (sseDisconnected ? '连接中断，重连中' : '连接中…') }}
       </span>
     </header>
 

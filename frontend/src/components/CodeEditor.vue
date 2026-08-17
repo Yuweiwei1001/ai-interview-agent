@@ -21,6 +21,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  editor?.getModel()?.dispose();
   editor?.dispose();
 });
 
