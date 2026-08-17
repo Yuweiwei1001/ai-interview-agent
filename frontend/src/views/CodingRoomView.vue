@@ -13,7 +13,7 @@ const route = useRoute();
 const router = useRouter();
 
 const sessionId = route.query.sessionId as string;
-const code = ref('// 请在此处编写代码\nimport java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, Interview!");\n    }\n}');
+const code = ref('// 请在此处编写代码\nimport java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n        System.out.println("Hello, Interview!");\n    }\n}');
 const language = ref('java');
 const output = ref('');
 const testResults = ref<TestCaseResult[]>([]);
@@ -32,8 +32,8 @@ const languageOptions = [
   { label: 'Python', value: 'python' }
 ];
 
-/* 编辑器 Tab 条文件名：随语言切换（力扣惯例） */
-const fileLabel = computed(() => (language.value === 'python' ? 'main.py' : 'Main.java'));
+/* 编辑器 Tab 条文件名：随语言切换（力扣惯例；Java 侧与后端沙箱编译的 Solution.java 保持一致） */
+const fileLabel = computed(() => (language.value === 'python' ? 'solution.py' : 'Solution.java'));
 
 /* 窄屏（<768px）判定：纵向堆叠，不渲染 NSplit */
 const mq = window.matchMedia('(max-width: 767px)');
