@@ -15,8 +15,8 @@ const props = defineProps<{
 const expanded = ref(false);
 const activeTab = ref<'tests' | 'console'>('tests');
 
-/* 默认折叠；运行发起 / 重试提示 / 错误出现时自动展开 */
-watch(() => props.running, (v) => { if (v) expanded.value = true; });
+/* 默认折叠；运行发起 / 重试提示 / 错误出现时自动展开；immediate 兼容运行中跨断点重建场景 */
+watch(() => props.running, (v) => { if (v) expanded.value = true; }, { immediate: true });
 /* v-if 重建后 expanded 会重置；immediate 兜底：初挂载时若提示已非空则自动展开 */
 watch([() => props.retryHint, () => props.errorMsg], ([rh, em]) => {
   if (rh || em) expanded.value = true;

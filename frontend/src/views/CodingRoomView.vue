@@ -102,6 +102,7 @@ onUnmounted(() => {
 async function handleRun() {
   running.value = true;
   output.value = '';
+  errorMsg.value = '';
   testResults.value = [];
   passRate.value = null;
   try {
