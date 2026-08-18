@@ -22,6 +22,17 @@ public class LlmCallWrapper {
     // 重试退避时间（秒）
     private static final long RETRY_BACKOFF_SECONDS = 1;
 
+    /**
+     * 共享 LLM 调用线程池：由 LlmConfig 在 Bean 初始化时注入，避免每次调用创建/销毁临时线程。
+     * 未注入时（如单元测试直调）自动回退临时单线程池，行为不变。
+     */
+    private static volatile ExecutorService sharedExecutor;
+
+    /** 仅供 Spring 生命周期调用（LlmConfig#llmExecutor），不要在其他地方使用 */
+    public static void initSharedExecutor(ExecutorService executor) {
+        sharedExecutor = executor;
+    }
+
     private LlmCallWrapper() {}
 
     /**
@@ -77,12 +88,27 @@ public class LlmCallWrapper {
                     Thread.sleep(RETRY_BACKOFF_SECONDS * 1000);
                 }
 
-                ExecutorService executor = Executors.newSingleThreadExecutor();
+                ExecutorService ephemeral = null;
                 try {
-                    Future<T> future = executor.submit(tracedCallable);
-                    return future.get(timeoutSeconds, TimeUnit.SECONDS);
+                    ExecutorService exec = sharedExecutor;
+                    Future<T> future;
+                    if (exec != null) {
+                        future = exec.submit(tracedCallable);
+                    } else {
+                        ephemeral = Executors.newSingleThreadExecutor();
+                        future = ephemeral.submit(tracedCallable);
+                    }
+                    try {
+                        return future.get(timeoutSeconds, TimeUnit.SECONDS);
+                    } catch (TimeoutException te) {
+                        // 共享池下必须显式中断挂起中的调用，线程才能归还池；临时池随后 shutdownNow 双保险
+                        future.cancel(true);
+                        throw te;
+                    }
                 } finally {
-                    executor.shutdownNow();
+                    if (ephemeral != null) {
+                        ephemeral.shutdownNow();
+                    }
                 }
             } catch (TimeoutException e) {
                 log.warn("LLM 调用超时: attempt={}/{}", attempt + 1, maxRetries);

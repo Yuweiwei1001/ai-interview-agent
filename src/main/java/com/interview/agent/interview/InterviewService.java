@@ -204,6 +204,7 @@ public class InterviewService {
             } catch (InterviewTerminatedException e) {
                 log.info("面试已被终止: sessionId={}", sessionId);
                 // 不发送 ERROR，保持 interrupted 状态
+                askQuestionTool.resetTermination(sessionId); // 图线程即将退出，清理终止标记防集合无界增长
             } catch (InterviewTimeoutException e) {
                 // 单题等待超时：AskQuestionTool 已完成收尾（报告 + COMPLETE），图执行直接停止，不发 ERROR
                 log.info("面试因等待回答超时结束: sessionId={}", sessionId);
@@ -248,6 +249,7 @@ public class InterviewService {
 
             } catch (InterviewTerminatedException e) {
                 log.info("面试已被终止，忽略恢复执行: sessionId={}", sessionId);
+                askQuestionTool.resetTermination(sessionId); // 图线程即将退出，清理终止标记防集合无界增长
             } catch (InterviewTimeoutException e) {
                 log.info("恢复执行因等待回答超时结束: sessionId={}", sessionId);
             } catch (Exception e) {

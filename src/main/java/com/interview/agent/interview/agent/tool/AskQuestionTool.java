@@ -137,7 +137,8 @@ public class AskQuestionTool {
     }
 
     /**
-     * 重置会话终止标记（仅面试重新开始时使用）
+     * 清除会话终止标记：图线程因终止异常退出时调用（防 terminatedSessions 无界增长），
+     * 或面试重新开始前显式重置
      */
     public void resetTermination(String sessionId) {
         terminatedSessions.remove(sessionId);

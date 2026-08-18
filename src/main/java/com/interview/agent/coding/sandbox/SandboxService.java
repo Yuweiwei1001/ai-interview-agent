@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * 沙箱执行服务
@@ -62,11 +63,16 @@ public class SandboxService {
                         "javac", "/workspace/Solution.java"
                 );
                 Process compileProcess = compilePb.start();
+                // 后台并发排水：防止输出写满管道缓冲区导致进程阻塞、waitFor 误判超时
+                OutputGobbler compileOut = new OutputGobbler(compileProcess.getInputStream(), "sandbox-cout");
+                OutputGobbler compileErr = new OutputGobbler(compileProcess.getErrorStream(), "sandbox-cerr");
+                compileOut.start();
+                compileErr.start();
                 boolean compiled = compileProcess.waitFor(30, TimeUnit.SECONDS);
                 if (!compiled || compileProcess.exitValue() != 0) {
-                    String error = readStream(compileProcess.getErrorStream());
                     compileProcess.destroyForcibly();
-                    return new SandboxResult(false, "", "编译错误:\n" + error, 0, false);
+                    compileErr.await(2000);
+                    return new SandboxResult(false, "", "编译错误:\n" + compileErr.content(), 0, false);
                 }
 
                 // 运行（-i 保持 stdin 打开以注入测试输入）
@@ -108,6 +114,13 @@ public class SandboxService {
             ProcessBuilder runPb = new ProcessBuilder(command);
             Process runProcess = runPb.start();
 
+            // 后台并发读取 stdout/stderr：waitFor 期间持续排水，防止输出大于管道缓冲区（约 64KB）时
+            // 进程阻塞在写输出上、被误判为「执行超时」且输出全部丢失
+            OutputGobbler stdout = new OutputGobbler(runProcess.getInputStream(), "sandbox-out");
+            OutputGobbler stderr = new OutputGobbler(runProcess.getErrorStream(), "sandbox-err");
+            stdout.start();
+            stderr.start();
+
             // 写入输入
             if (testInput != null && !testInput.isBlank()) {
                 try (OutputStream os = runProcess.getOutputStream()) {
@@ -123,11 +136,12 @@ public class SandboxService {
                 return new SandboxResult(false, "", "执行超时（" + config.getTimeoutSeconds() + "秒）", 0, false);
             }
 
-            String stdout = readStream(runProcess.getInputStream());
-            String stderr = readStream(runProcess.getErrorStream());
+            // 进程已退出，gobbler 很快读到 EOF；短暂 join 确保尾部数据读尽
+            stdout.await(2000);
+            stderr.await(2000);
             int exitCode = runProcess.exitValue();
 
-            return new SandboxResult(exitCode == 0, stdout, stderr, exitCode, false);
+            return new SandboxResult(exitCode == 0, stdout.content(), stderr.content(), exitCode, false);
 
         } catch (Exception e) {
             log.error("沙箱执行失败", e);
@@ -149,40 +163,37 @@ public class SandboxService {
     }
 
     /**
-     * 代码安全检查
+     * 危险 API 黑名单：真正的正则匹配（空白容忍），修复旧实现 contains+删 "\s*" 导致
+     * 「Runtime . getRuntime ( ) . exec」这类插空写法完全绕过检测的问题。
+     * 注：Docker 隔离（断网/资源限制）是主防线，此处为纵深防御。
      */
+    private static final List<DangerCheck> DANGEROUS_CHECKS = List.of(
+            new DangerCheck(Pattern.compile("Runtime\\s*\\.\\s*getRuntime\\s*\\(\\s*\\)\\s*\\.\\s*exec"), "Runtime.getRuntime().exec"),
+            new DangerCheck(Pattern.compile("Runtime\\s*\\.\\s*getRuntime\\s*\\(\\s*\\)\\s*\\.\\s*halt"), "Runtime.getRuntime().halt"),
+            new DangerCheck(Pattern.compile("ProcessBuilder"), "ProcessBuilder"),
+            new DangerCheck(Pattern.compile("System\\s*\\.\\s*exit"), "System.exit"),
+            new DangerCheck(Pattern.compile("java\\s*\\.\\s*lang\\s*\\.\\s*reflect"), "java.lang.reflect"),
+            new DangerCheck(Pattern.compile("Class\\s*\\.\\s*forName"), "Class.forName"),
+            new DangerCheck(Pattern.compile("java\\s*\\.\\s*net\\s*\\.\\s*(Server)?Socket"), "java.net.Socket/ServerSocket"),
+            new DangerCheck(Pattern.compile("new\\s+Socket"), "new Socket"),
+            new DangerCheck(Pattern.compile("java\\s*\\.\\s*io\\s*\\.\\s*File(Output|Input)Stream"), "FileOutputStream/FileInputStream"),
+            new DangerCheck(Pattern.compile("Files\\s*\\.\\s*write"), "java.nio.file.Files.write")
+    );
+
+    private record DangerCheck(Pattern pattern, String label) {}
+
     private String checkSecurity(String code, String language) {
         if (code == null || code.isBlank()) {
             return "代码不能为空";
         }
 
-        // 禁止的危险 API
-        String[] blacklist = {
-            "Runtime.getRuntime().exec", "Runtime\\s*\\.getRuntime\\s*\\.\\s*exec",
-            "ProcessBuilder", "java.lang.reflect", "java.lang.Class.forName",
-            "java.net.Socket", "java.net.ServerSocket", "java.io.FileOutputStream",
-            "java.io.FileInputStream", "new Socket", "java.nio.file.Files.write",
-            "Runtime.getRuntime().halt", "System.exit"
-        };
-
-        String codeLower = code.toLowerCase();
-        for (String pattern : blacklist) {
-            if (codeLower.contains(pattern.toLowerCase().replaceAll("\\\\s\\*", ""))) {
-                return "代码包含禁止的 API: " + pattern;
+        for (DangerCheck check : DANGEROUS_CHECKS) {
+            if (check.pattern().matcher(code).find()) {
+                return "代码包含禁止的 API: " + check.label();
             }
         }
 
         return null;
-    }
-
-    private String readStream(InputStream is) throws IOException {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            sb.append(line).append("\n");
-        }
-        return sb.toString().trim();
     }
 
     public static class SandboxResult {
@@ -205,5 +216,57 @@ public class SandboxService {
         public String getError() { return error; }
         public int getExitCode() { return exitCode; }
         public boolean isSecurityViolation() { return securityViolation; }
+    }
+
+    /** 单条输出软上限：防止恶意刷屏撑爆内存，超出部分只排水不保留 */
+    private static final int MAX_OUTPUT_CHARS = 64 * 1024;
+
+    /**
+     * 后台输出排水线程：进程运行期间持续读取 stdout/stderr，
+     * 防止输出写满管道缓冲区导致进程阻塞、waitFor 误判超时。
+     */
+    private static final class OutputGobbler extends Thread {
+        private final InputStream in;
+        private final StringBuilder sb = new StringBuilder();
+        private boolean truncated = false;
+
+        OutputGobbler(InputStream in, String name) {
+            super(name);
+            setDaemon(true);
+            this.in = in;
+        }
+
+        @Override
+        public void run() {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (sb.length() >= MAX_OUTPUT_CHARS) {
+                        truncated = true;
+                        continue;
+                    }
+                    sb.append(line).append('\n');
+                }
+            } catch (IOException ignored) {
+                // 进程被强杀时流关闭属预期，排水即可
+            }
+        }
+
+        /** 进程退出后短暂等待读尽尾部数据 */
+        void await(long millis) {
+            try {
+                join(millis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        String content() {
+            if (truncated) {
+                sb.append("\n...[输出过长，已截断]");
+                truncated = false;
+            }
+            return sb.toString().trim();
+        }
     }
 }

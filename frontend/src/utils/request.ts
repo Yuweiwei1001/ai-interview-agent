@@ -20,10 +20,16 @@ request.interceptors.request.use(
 
 // 响应拦截器：401 自动刷新
 let isRefreshing = false;
-let refreshSubscribers: ((token: string) => void)[] = [];
+// token 为 null 表示刷新失败，排队请求应 reject 而非永久挂起
+let refreshSubscribers: ((token: string | null) => void)[] = [];
 
 function onRefreshed(token: string) {
   refreshSubscribers.forEach(cb => cb(token));
+  refreshSubscribers = [];
+}
+
+function onRefreshFailed() {
+  refreshSubscribers.forEach(cb => cb(null));
   refreshSubscribers = [];
 }
 
@@ -33,8 +39,13 @@ request.interceptors.response.use(
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
       if (isRefreshing) {
-        return new Promise(resolve => {
-          refreshSubscribers.push((token: string) => {
+        return new Promise((resolve, reject) => {
+          refreshSubscribers.push((token) => {
+            // 刷新失败（token 为 null）：reject 排队请求，避免 Promise 永久挂起
+            if (!token) {
+              reject(error);
+              return;
+            }
             originalRequest.headers.Authorization = `Bearer ${token}`;
             resolve(request(originalRequest));
           });
@@ -54,6 +65,9 @@ request.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return request(originalRequest);
       } catch {
+        // 刷新失败：先释放排队请求（reject），再清理凭证跳转登录，
+        // 否则排队中的请求 Promise 永远 pending，调用方 await 永远不返回
+        onRefreshFailed();
         localStorage.clear();
         window.location.href = '/login';
         return Promise.reject(error);
