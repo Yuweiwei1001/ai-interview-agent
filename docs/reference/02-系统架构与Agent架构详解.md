@@ -50,6 +50,7 @@ planned ──→ in_progress ──→ waiting_code（编程题挂起，提交�
 | `WAITING_CODE` | InterviewService | 编程题已出 / 代码不达标需重试（带提示） |
 | `CODE_SUBMITTED` | CodingSubmitController | 代码已提交，评估中 |
 | `REPORT_READY` | ReportGenerator | 报告已生成（data 为报告 JSON） |
+| `ANSWER_TIMEOUT` | AskQuestionTool | 单题等待超时，面试自动结束（后跟 `COMPLETE`） |
 | `COMPLETE` | InterviewService | 面试结束 |
 | `ERROR` | 异常处理 | 面试执行失败 |
 
@@ -94,7 +95,7 @@ graph TB
 |:---|:---|:---|
 | `plan` | PlanNode | 已有计划则直接应用 maxRounds；否则调用 PlanGenerator 生成计划并回填（计划 `estimatedTotalRounds` 作为 maxRounds，取代默认 20） |
 | `coordinator` | CoordinatorNode | ① CoordinatorAgent（qwen-turbo）决策下一个 Agent / 主题 / 难度（含“已考察主题”强约束）；② **编程题确定性护栏**（见 2.4）；③ **知识库检索注入**（挂载知识库时按 topic 检索 top3 片段注入出题 prompt）；④ 调用对应 Agent 出题；⑤ 去重重试（最多 3 次）；⑥ 路由到 coding 时置 `waitingForCode=true` |
-| `ask` | AskNode | 推送 `THINKING` + `QUESTION`（JSON 负载），AskQuestionTool 阻塞等待回答（30 分钟超时），题号 = 非追问轮计数 + 1 |
+| `ask` | AskNode | 推送 `THINKING` + `QUESTION`（JSON 负载），AskQuestionTool 阻塞等待回答（默认 30 分钟可配，超时自动结束面试），题号 = 非追问轮计数 + 1 |
 | `speaker` | SpeakerAgent（占位） | Phase 1 文字面试直接透传原文；Phase 2 数字人启用语音合成 |
 | `codingWait` | 内联 lambda | 实际执行时说明代码已提交：重置 `waitingForCode=false`、状态 `in_progress` |
 | `codingRetryWait` | 内联 lambda | 修改后代码已提交：重置标志 + `codingRetryCount+1` |
@@ -131,7 +132,7 @@ LLM 的 coding 路由决策不被信任，强制护栏：
 
 [AskQuestionTool.java](../src/main/java/com/interview/agent/interview/agent/tool/AskQuestionTool.java) 是图与用户之间的"提问桥梁"：
 
-- `askAndWait()`：① 检查会话是否已终止；② 创建 `CompletableFuture` 放入 `pendingQuestions`；③ **持久化当前题目**到 `interview_session.current_question`（SSE 事件丢失时前端可轮询恢复）；④ SSE 推送题目；⑤ `future.get(30min)` 阻塞等待；⑥ 超时返回占位串"【超时未回答】"（已终止则抛 `InterviewTerminatedException`）。
+- `askAndWait()`：① 检查会话是否已终止；② 创建 `CompletableFuture` 放入 `pendingQuestions`；③ **持久化当前题目**到 `interview_session.current_question`（SSE 事件丢失时前端可轮询恢复）；④ SSE 推送题目；⑤ `future.get(超时分钟数)` 阻塞等待（`interview.answer-timeout-minutes`，默认 30）；⑥ 超时不再用占位串继续流程，而是发 `ANSWER_TIMEOUT` 并调 `InterviewService.endInterviewOnTimeout` 自动收尾（置 interrupted、生成报告、发 COMPLETE），然后抛 `InterviewTimeoutException` 中断图执行；已终止则抛 `InterviewTerminatedException`。超时后 pendingQuestions 已清理，迟到回答被拒绝、不会错配给后续轮次。
 - `submitAnswer()`：从 pendingQuestions 取出 future 并 `complete(answer)` 唤醒图线程。
 - `cancel()`：标记 `terminatedSessions` + 取消 future——手动结束面试时图线程会感知并中断。
 - `resetTermination()`：仅面试重新开始时调用。
@@ -144,7 +145,7 @@ LLM 的 coding 路由决策不被信任，强制护栏：
 | 计划/出题/评估/追问/摘要/动态用例/代码评估 | qwen3.7-max-2026-05-17（默认 ChatClient） | 高质量任务；混合思考模型，必须配 `enable-thinking: true`（否则 DashScope 报 400） |
 | 知识库向量化/检索 | text-embedding-v3 | 1024 维，写入 Elasticsearch 向量索引 |
 
-所有 LLM 调用的 token 用量与估算成本由观测模块自动采集落 `llm_trace`（见 03 文档第 15 节），可按会话 / Agent 维度汇总，前端观测台可视化。
+所有 LLM 调用的 token 用量与估算成本由观测模块自动采集落 `llm_trace`（见 03 文档第 15 节），可按会话 / Agent 维度汇总，前端观测台可视化。出题侧另有 prompt 成本瘦身：八股/算法题不注入全量简历，仅项目题保留（见 06 文档决策 26）。
 
 ### 2.7 状态对象 InterviewState 字段速查
 

@@ -44,12 +44,14 @@ Flyway 迁移脚本位于 `src/main/resources/db/migration/`：
 - `interview_session` 增加 `knowledge_base_id` 字段（可空，挂载的知识库）。
 - 向量数据不在 MySQL：存 Elasticsearch 索引 `spring-ai-document-index`（metadata：kbId/docId/title/chunkIndex）。
 
-### 1.6 V7 LLM 观测（llm_trace）
+### 1.6 V7/V8 LLM 观测（llm_trace）
 
 | 表 | 关键字段 | 说明 |
 |:---|:---|:---|
-| `llm_trace` | id, session_id(可空), agent, model, prompt_tokens, completion_tokens, total_tokens, duration_ms, status(success/error), error_msg, estimated_cost(DECIMAL(10,6)), prompt_excerpt(TEXT), completion_excerpt(TEXT), created_at | 每次 LLM 调用一行；索引 session_id 与 created_at |
+| `llm_trace` | id, session_id(可空), trace_id(轮次关联ID), agent, kind(llm/retrieval), eval_score(评分回写), model, prompt_tokens, completion_tokens, total_tokens, duration_ms, status(success/error), error_msg, estimated_cost(DECIMAL(10,6)), prompt_excerpt(TEXT), completion_excerpt(TEXT), created_at | 每次 LLM 调用/知识库检索一行；索引 session_id、trace_id 与 created_at |
 
+- V8 迁移新增三列：`trace_id`（CoordinatorNode 派发新题时生成 `rt-*`，同轮出题/检索/评分/追问共享）、`kind`（默认 `llm`，检索 span 为 `retrieval`，token/成本恒 0）、`eval_score`（EvaluateNode 按 trace_id 异步回写本轮调整分）。
+- 汇总统计只统计 `kind='llm'` 行，检索 span 不污染 token/成本口径。
 - 评测运行的会话 sessionId 形如 `eval-{caseId}-{ts}`，可按此前缀在 llm_trace 中聚合评测的 token/成本消耗。
 
 ### 1.7 自动创建表（MysqlSaver）
@@ -98,7 +100,7 @@ Flyway 迁移脚本位于 `src/main/resources/db/migration/`：
 
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
-| POST | `/api/coding/run` | 练习：运行代码（带用例则跑测试） |
+| POST | `/api/coding/run` | 练习：运行代码（带用例则跑测试，无预设用例直接执行并返回沙箱 stdout 供控制台展示） |
 | POST | `/api/coding/submit` | 练习：用例 + 动态用例 + 多维评估 |
 | POST | `/api/coding/submit/{sessionId}` | **面试**：提交代码恢复图执行 |
 
@@ -129,7 +131,7 @@ Flyway 迁移脚本位于 `src/main/resources/db/migration/`：
 | 方法 | 路径 | 说明 |
 |:---|:---|:---|
 | GET | `/api/observability/sessions?limit=` | 会话维度汇总（调用数/总 token/成本/错误数，默认最近 50 场） |
-| GET | `/api/observability/traces?sessionId=` | 单场面试 LLM 调用明细（时间升序） |
+| GET | `/api/observability/traces?sessionId=` | 单场面试 LLM 调用与检索 span 明细（时间升序，含 traceId/kind/evalScore） |
 | GET | `/api/observability/summary?days=` | 汇总统计（总 token/成本/错误数 + 按 agent 拆分，默认近 7 天） |
 
 ---
