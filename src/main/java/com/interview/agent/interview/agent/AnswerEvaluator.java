@@ -35,22 +35,15 @@ public class AnswerEvaluator {
      * 评估回答并返回评分与点评；LLM 调用失败时降级为参考分 60（不影响流程推进）。
      */
     public EvaluationResult evaluate(String question, String answer) {
-        return evaluate(question, answer, null);
-    }
-
-    /**
-     * 带知识库参考片段评估：referenceKnowledge 为检索到的权威知识，作为评分事实依据。
-     */
-    public EvaluationResult evaluate(String question, String answer, String referenceKnowledge) {
         return LlmCallWrapper.callWithRetry("evaluator",
                 () -> {
-                    String content = chatClient.prompt().user(buildPrompt(question, answer, referenceKnowledge)).call().content();
+                    String content = chatClient.prompt().user(buildPrompt(question, answer)).call().content();
                     return parse(content);
                 },
                 () -> new EvaluationResult(60, 60, List.of(), "评估服务暂不可用，按参考分计入"));
     }
 
-    private String buildPrompt(String question, String answer, String referenceKnowledge) {
+    private String buildPrompt(String question, String answer) {
         String q = question == null ? "" : question;
         String a = answer == null ? "" : answer;
         // 控制 prompt 长度，避免超长回答拖垮上下文
@@ -60,9 +53,6 @@ public class AnswerEvaluator {
         return "你是一位专业的技术面试官，请评估候选人对面试题的回答质量。\n\n"
                 + "面试题：" + q + "\n\n"
                 + "候选人回答：" + a + "\n\n"
-                + (referenceKnowledge != null && !referenceKnowledge.isBlank()
-                        ? "参考知识（来自面试官知识库，作为评分的事实依据）：\n" + referenceKnowledge + "\n\n"
-                        : "")
                 + "评分标准：90-100 优秀（准确、深入、有实践见解）；70-89 良好（基本正确但深度或广度不足）；"
                 + "50-69 一般（部分正确、有明显缺漏）；0-49 不达标（错误较多或答非所问）。\n"
                 + "同时评估沟通表达（communication）：表达是否清晰有条理、是否紧扣问题、是否易于理解，与内容正确性无关。\n"

@@ -27,12 +27,8 @@ public class TechnicalAgent {
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
-        return generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints, null);
-    }
-
-    public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints, String referenceKnowledge) {
         return LlmCallWrapper.callWithRetry("technical", () -> {
-            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints, referenceKnowledge);
+            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints);
             String result = chatClient.prompt().user(prompt).call().content();
             if (result == null || result.isBlank()) {
                 throw new RuntimeException("Agent 出题返回空");
@@ -41,7 +37,7 @@ public class TechnicalAgent {
         }, () -> fallbackQuestion(topic, difficulty));
     }
 
-    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints, String referenceKnowledge) {
+    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一位资深技术面试官，负责考察候选人的技术基础能力。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
@@ -54,10 +50,6 @@ public class TechnicalAgent {
         if (weakPoints != null && !weakPoints.isEmpty()) {
             sb.append("候选人薄弱知识点（面试计划优先考察项 + 历史记忆）：").append(String.join("、", weakPoints)).append("\n");
             sb.append("若某个薄弱点与本次考察主题相关，优先围绕它出题；不相关则忽略。\n\n");
-        }
-        if (referenceKnowledge != null && !referenceKnowledge.isBlank()) {
-            sb.append("参考资料（来自面试官知识库，仅内部参考）：\n").append(referenceKnowledge).append("\n");
-            sb.append("若参考资料与本次考察主题相关，可围绕其中的知识点出题；不相关则忽略，不要暴露参考资料的存在。\n\n");
         }
         sb.append("请出一道技术基础题：考察概念理解、原理说明或日常开发经验，候选人口头阐述即可，不要求写代码。\n");
         sb.append("要求：\n");

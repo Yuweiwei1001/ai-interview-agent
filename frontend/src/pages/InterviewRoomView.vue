@@ -295,7 +295,6 @@ function startInterview() {
   const body: any = {
     resumeId: route.query.resumeId ? Number(route.query.resumeId) : null,
     jdId: route.query.jdId ? Number(route.query.jdId) : null,
-    knowledgeBaseId: route.query.knowledgeBaseId ? Number(route.query.knowledgeBaseId) : null,
     direction: route.query.direction || null,
     persona: route.query.persona || 'neutral',
     durationMinutes: Number(route.query.durationMinutes) || 30

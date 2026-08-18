@@ -32,7 +32,6 @@ import com.interview.agent.interview.graph.node.FollowUpNode;
 import com.interview.agent.interview.graph.node.PlanNode;
 import com.interview.agent.interview.plan.PlanGenerator;
 import com.interview.agent.interview.policy.BehaviorPolicyFactory;
-import com.interview.agent.knowledge.KnowledgeRetriever;
 import com.interview.agent.memory.KnowledgePointService;
 import com.interview.agent.observability.LlmTraceContextHolder;
 import com.interview.agent.observability.LlmTraceObservationHandler;
@@ -101,7 +100,6 @@ public class InterviewGraphBuilder {
     private final TestCaseService testCaseService;
     private final AnswerEvaluator answerEvaluator;
     private final RoundPersistenceService roundPersistenceService;
-    private final KnowledgeRetriever knowledgeRetriever;
     private final LlmTraceObservationHandler traceHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -113,7 +111,6 @@ public class InterviewGraphBuilder {
                                  KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
                                  TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
                                  RoundPersistenceService roundPersistenceService,
-                                 KnowledgeRetriever knowledgeRetriever,
                                  LlmTraceObservationHandler traceHandler) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
@@ -130,7 +127,6 @@ public class InterviewGraphBuilder {
         this.testCaseService = testCaseService;
         this.answerEvaluator = answerEvaluator;
         this.roundPersistenceService = roundPersistenceService;
-        this.knowledgeRetriever = knowledgeRetriever;
         this.traceHandler = traceHandler;
     }
 
@@ -151,10 +147,10 @@ public class InterviewGraphBuilder {
     public CompiledGraph buildGraph() throws Exception {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
-        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, knowledgePointService, knowledgeRetriever);
+        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, knowledgePointService);
         AskNode askNode = new AskNode(askQuestionTool);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
-                codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService, knowledgeRetriever,
+                codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService,
                 traceHandler);
 
         // 构建图（非泛型：状态为 OverAllState，领域对象整体存放于 STATE_KEY）
