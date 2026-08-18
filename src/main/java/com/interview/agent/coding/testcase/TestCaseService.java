@@ -183,17 +183,25 @@ public class TestCaseService {
         private final double passRate;
         private final List<TestCaseResult> results;
         private final String error;
+        /** 直接执行（无测试用例）时的程序 stdout，用于前端控制台展示 */
+        private final String stdout;
 
         public TestRunResult(boolean allPassed, double passRate, List<TestCaseResult> results, String error) {
+            this(allPassed, passRate, results, error, null);
+        }
+
+        public TestRunResult(boolean allPassed, double passRate, List<TestCaseResult> results, String error, String stdout) {
             this.allPassed = allPassed;
             this.passRate = passRate;
             this.results = results;
             this.error = error;
+            this.stdout = stdout;
         }
 
         public boolean isAllPassed() { return allPassed; }
         public double getPassRate() { return passRate; }
         public List<TestCaseResult> getResults() { return results; }
         public String getError() { return error; }
+        public String getStdout() { return stdout; }
     }
 }

@@ -19,6 +19,7 @@ const output = ref('');
 const testResults = ref<TestCaseResult[]>([]);
 const passRate = ref<number | null>(null);
 const running = ref(false);
+const hasRun = ref(false);
 const submitting = ref(false);
 const question = ref((route.query.question as string) || '编程题');
 const retryHint = ref('');
@@ -110,12 +111,14 @@ async function handleRun() {
     const data: TestRunResult = res.data.data;
     testResults.value = data.results || [];
     passRate.value = data.passRate;
-    if (data.error) output.value = data.error;
+    /* 控制台优先展示报错；无报错时展示沙箱 stdout */
+    output.value = data.error || data.stdout || '';
   } catch (e: any) {
     output.value = e.response?.data?.msg || '运行失败';
     errorMsg.value = output.value;
   } finally {
     running.value = false;
+    hasRun.value = true;
   }
 }
 
@@ -176,7 +179,7 @@ async function handleSubmit() {
               <CodeEditor v-model="code" :language="language" bare />
             </div>
             <CodingResultPanel :test-results="testResults" :pass-rate="passRate" :output="output"
-              :retry-hint="retryHint" :error-msg="errorMsg" :running="running" />
+              :retry-hint="retryHint" :error-msg="errorMsg" :running="running" :has-run="hasRun" />
           </div>
         </template>
       </n-split>
@@ -208,7 +211,7 @@ async function handleSubmit() {
         </div>
       </div>
       <CodingResultPanel :test-results="testResults" :pass-rate="passRate" :output="output"
-        :retry-hint="retryHint" :error-msg="errorMsg" :running="running" />
+        :retry-hint="retryHint" :error-msg="errorMsg" :running="running" :has-run="hasRun" />
     </div>
   </div>
 </template>

@@ -12,6 +12,8 @@ export interface TestRunResult {
   passRate: number;
   results: TestCaseResult[];
   error: string | null;
+  /** 无预设用例直接执行时的程序 stdout */
+  stdout?: string | null;
 }
 
 export interface CodeEvaluationResult {

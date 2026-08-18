@@ -39,13 +39,14 @@ public class CodingController {
             return Result.success(result);
         }
 
-        // 否则直接执行
+        // 否则直接执行（透传沙箱 stdout 供前端控制台展示）
         SandboxService.SandboxResult result = sandboxService.execute(request.getCode(), request.getLanguage(), request.getInput());
         return Result.success(new TestRunResult(
                 result.isSuccess(),
                 result.isSuccess() ? 100 : 0,
                 List.of(),
-                result.isSuccess() ? null : result.getError()
+                result.isSuccess() ? null : result.getError(),
+                result.getOutput()
         ));
     }
 

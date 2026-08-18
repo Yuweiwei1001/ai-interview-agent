@@ -10,6 +10,8 @@ const props = defineProps<{
   retryHint: string;
   errorMsg: string;
   running: boolean;
+  /* 是否已发起过运行：区分「未运行」与「已运行但无测试用例」两种空态 */
+  hasRun: boolean;
 }>();
 
 const expanded = ref(false);
@@ -17,6 +19,10 @@ const activeTab = ref<'tests' | 'console'>('tests');
 
 /* 默认折叠；运行发起 / 重试提示 / 错误出现时自动展开；immediate 兼容运行中跨断点重建场景 */
 watch(() => props.running, (v) => { if (v) expanded.value = true; }, { immediate: true });
+/* 运行结束且无测试结果时（直接执行模式）：stdout/错误在控制台 tab，自动切换 */
+watch(() => props.running, (v, old) => {
+  if (old && !v && props.testResults.length === 0) activeTab.value = 'console';
+});
 /* v-if 重建后 expanded 会重置；immediate 兜底：初挂载时若提示已非空则自动展开 */
 watch([() => props.retryHint, () => props.errorMsg], ([rh, em]) => {
   if (rh || em) expanded.value = true;
@@ -42,6 +48,7 @@ const statusText = computed(() => {
         {{ allPassed ? '✓' : '✗' }} {{ statusText }}
       </span>
       <span v-else-if="running" class="text-slate-400">运行中…</span>
+      <span v-else-if="hasRun" class="text-slate-400">✓ 运行完成 · 无测试用例</span>
     </button>
 
     <!-- 展开内容：总高不超过 #2 pane 的 60%，保证编辑器至少 40% 可用 -->
@@ -64,7 +71,7 @@ const statusText = computed(() => {
               :status="passRate >= 60 ? 'success' : 'error'" :height="8" border-radius="4px" />
           </div>
           <div v-if="testResults.length === 0" class="text-xs text-slate-400 py-4 text-center">
-            点击「▷ 运行」查看测试结果
+            {{ hasRun ? '运行完成 · 无预设测试用例（提交时由 AI 动态生成），输出见「控制台」' : '点击「▷ 运行」查看测试结果' }}
           </div>
           <div v-else class="space-y-2">
             <div v-for="(tr, i) in testResults" :key="i"
