@@ -6,6 +6,7 @@ import ResumesView from './pages/ResumesView.vue';
 import JdsView from './pages/JdsView.vue';
 import KnowledgeBasesView from './pages/KnowledgeBasesView.vue';
 import KnowledgeDocEditView from './pages/KnowledgeDocEditView.vue';
+import ChatView from './pages/ChatView.vue';
 import InterviewStartView from './pages/InterviewStartView.vue';
 import InterviewRoomView from './pages/InterviewRoomView.vue';
 import SessionsView from './pages/SessionsView.vue';
@@ -25,6 +26,7 @@ const router = createRouter({
         { path: '/jds', name: 'Jds', component: JdsView, meta: { requiresAuth: true } },
         { path: '/knowledge-bases', name: 'KnowledgeBases', component: KnowledgeBasesView, meta: { requiresAuth: true } },
         { path: '/knowledge-bases/:kbId/documents/:docId', name: 'KnowledgeDocEdit', component: KnowledgeDocEditView, meta: { requiresAuth: true } },
+        { path: '/chat', name: 'KnowledgeChat', component: ChatView, meta: { requiresAuth: true } },
         { path: '/interview/start', name: 'InterviewStart', component: InterviewStartView, meta: { requiresAuth: true } },
         { path: '/interview/room', name: 'InterviewRoom', component: InterviewRoomView, meta: { requiresAuth: true } },
         { path: '/sessions', name: 'Sessions', component: SessionsView, meta: { requiresAuth: true } },

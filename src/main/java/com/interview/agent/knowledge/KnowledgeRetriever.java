@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -16,8 +17,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * 知识库检索器（非工具类版本）：面试出题/评估时确定性调用，检索结果格式化后注入 Prompt。
- * 输出格式对齐 ThinkVerse SearchKnowledgeTool：【标题】\n内容（截断500字），片段间 --- 分隔。
+ * 知识库检索器：按 kbId 集合做向量检索（面试链路已解耦，当前唯一调用方为知识笔记 AI 问答）。
  * 每次检索落一条 kind=retrieval 的观测 span（token/成本恒为 0，不计入 LLM 调用统计）。
  */
 @Component
@@ -27,6 +27,14 @@ public class KnowledgeRetriever {
     /** 检索 span 的归因名（观测台 Agent 拆分中展示为知识库检索） */
     private static final String AGENT_RETRIEVER = "retriever";
 
+    /**
+     * 原始 cosine 相似度阈值（非归一化分数）：Spring AI ES store 将 similarityThreshold
+     * 直接映射为 ES knn.similarity，对底层 cosine 生效。通用 embedding（如 DashScope）
+     * 的"问题 vs 知识片段"cosine 通常落在 0.3~0.5，阈值取 0.5 会大量漏召回导致误拒答；
+     * 无关问题（如闲聊/其他领域）cosine 一般 <0.2，0.3 仍可有效拒答。
+     */
+    private static final double MIN_SIMILARITY = 0.3;
+
     private final VectorStore vectorStore;
     private final LlmTraceObservationHandler traceHandler;
 
@@ -35,56 +43,61 @@ public class KnowledgeRetriever {
         this.traceHandler = traceHandler;
     }
 
+    /** 检索命中片段：docId/title 供引用来源展示，excerpt 为原文摘录 */
+    public record RetrievedChunk(Long docId, String title, String excerpt, double score) {}
+
     /**
-     * 检索指定知识库中与 query 最相关的知识片段并格式化。
-     * 无结果或异常时返回 null（调用方据此决定是否注入 Prompt）。
+     * 在指定知识库集合内检索与 query 最相关的片段。
+     * 调用方必须自行保证 kbIds 只含当前登录用户拥有的库（用户隔离的信任边界在服务端）。
+     * 集合为空 / 无结果 / 异常时返回空列表（调用方据此走拒答）。
      */
-    public String search(Long knowledgeBaseId, String query, int topK) {
-        if (knowledgeBaseId == null || query == null || query.isBlank()) {
-            return null;
+    public List<RetrievedChunk> searchByKbIds(List<Long> kbIds, String query, int topK) {
+        if (kbIds == null || kbIds.isEmpty() || query == null || query.isBlank()) {
+            return List.of();
         }
         long startNanos = System.nanoTime();
         try {
+            FilterExpressionBuilder b = new FilterExpressionBuilder();
+            // 注意：in(String, List<Object>) 无法接收 List<Long>（泛型不变），
+            // 会退化匹配 varargs 重载把整个 List 当单个值，生成非法嵌套数组 terms 查询；
+            // 必须 toArray() 展开为逐个值
             SearchRequest request = SearchRequest.builder()
                     .query(query)
                     .topK(topK)
-                    .similarityThreshold(0.5)
-                    .filterExpression("kbId == " + knowledgeBaseId)
+                    .similarityThreshold(MIN_SIMILARITY)
+                    .filterExpression(b.in("kbId", kbIds.toArray()).build())
                     .build();
 
             List<Document> results = vectorStore.similaritySearch(request);
-            if (results == null || results.isEmpty()) {
-                log.info("知识库检索无结果: kbId={}, query='{}'", knowledgeBaseId, query);
-                recordSpan(query, knowledgeBaseId, 0, startNanos, true, null);
-                return null;
-            }
-
-            String formatted = results.stream()
+            List<RetrievedChunk> chunks = results == null ? List.of() : results.stream()
                     .map(doc -> {
-                        String title = doc.getMetadata() != null
-                                ? String.valueOf(doc.getMetadata().getOrDefault("title", "未知"))
-                                : "未知";
+                        java.util.Map<String, Object> md = doc.getMetadata();
+                        Long docId = md != null && md.get("docId") != null
+                                ? Long.valueOf(String.valueOf(md.get("docId"))) : null;
+                        String title = md != null && md.get("title") != null
+                                ? String.valueOf(md.get("title")) : "未知";
                         String content = doc.getText();
                         if (content != null && content.length() > 500) {
                             content = content.substring(0, 500) + "...";
                         }
-                        return "【" + title + "】\n" + content;
+                        double score = doc.getScore() != null ? doc.getScore() : 0.0;
+                        return new RetrievedChunk(docId, title, content, score);
                     })
-                    .collect(Collectors.joining("\n\n---\n\n"));
+                    .collect(Collectors.toList());
 
-            log.info("知识库检索成功: kbId={}, query='{}', 结果数={}", knowledgeBaseId, query, results.size());
-            recordSpan(query, knowledgeBaseId, results.size(), startNanos, true, null);
-            return formatted;
+            log.info("知识库检索完成: kbIds={}, topK={}, 命中={}", kbIds, topK, chunks.size());
+            recordSpan(query, kbIds, chunks.size(), startNanos, true, null);
+            return chunks;
         } catch (Exception e) {
-            log.error("知识库检索失败: kbId={}, query='{}'", knowledgeBaseId, query, e);
-            recordSpan(query, knowledgeBaseId, 0, startNanos, false,
+            log.error("知识库检索失败: kbIds={}", kbIds, e);
+            recordSpan(query, kbIds, 0, startNanos, false,
                     e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
-            return null;
+            return List.of();
         }
     }
 
-    /** 落检索 span：任何异常仅记日志，绝不影响检索主链路（无结果也记录，便于观测检索命中率） */
-    private void recordSpan(String query, Long knowledgeBaseId, int hitCount, long startNanos,
+    /** 落检索 span：任何异常仅记日志，绝不影响主链路（无结果也记录，便于观测检索命中率） */
+    private void recordSpan(String query, List<Long> kbIds, int hitCount, long startNanos,
                             boolean success, String errorMsg) {
         try {
             LlmTrace trace = new LlmTrace();
@@ -95,7 +108,7 @@ public class KnowledgeRetriever {
                 trace.setSessionId(ctx.getSessionId());
                 trace.setTraceId(ctx.getRoundTraceId());
             }
-            trace.setPromptExcerpt("[kbId=" + knowledgeBaseId + ", topK] " + truncate(query, 2000));
+            trace.setPromptExcerpt("[kbIds=" + kbIds + ", topK] " + truncate(query, 2000));
             trace.setCompletionExcerpt("命中 " + hitCount + " 个片段");
             trace.setDurationMs((System.nanoTime() - startNanos) / 1_000_000);
             // 检索不消耗 LLM token，成本恒为 0（列 NOT NULL，不可省略）

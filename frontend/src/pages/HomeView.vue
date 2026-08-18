@@ -25,7 +25,9 @@ function handleLogout() {
           <router-link to="/jds"
             class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200">职位管理</router-link>
           <router-link to="/knowledge-bases"
-            class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200">知识库</router-link>
+            class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200">知识笔记</router-link>
+          <router-link to="/chat"
+            class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200">知识问答</router-link>
           <router-link to="/interview/start"
             class="px-3 py-1.5 rounded-lg text-sm text-slate-600 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200">开始面试</router-link>
           <router-link to="/sessions"
@@ -49,7 +51,7 @@ function handleLogout() {
       </div>
 
       <!-- 美化：快捷入口卡片，hover 上浮 + 阴影加深 -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
         <router-link to="/resumes"
           class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold mb-3">简</div>
@@ -65,8 +67,14 @@ function handleLogout() {
         <router-link to="/knowledge-bases"
           class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
           <div class="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center text-lg font-bold mb-3">库</div>
-          <h3 class="font-semibold text-slate-800 group-hover:text-cyan-600 transition-colors duration-200">知识库</h3>
-          <p class="text-sm text-slate-500 mt-1">维护专属知识，面试出题评估自动引用</p>
+          <h3 class="font-semibold text-slate-800 group-hover:text-cyan-600 transition-colors duration-200">知识笔记</h3>
+          <p class="text-sm text-slate-500 mt-1">沉淀专属知识文档，AI 问答自动引用</p>
+        </router-link>
+        <router-link to="/chat"
+          class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
+          <div class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center text-lg font-bold mb-3">问</div>
+          <h3 class="font-semibold text-slate-800 group-hover:text-teal-600 transition-colors duration-200">知识问答</h3>
+          <p class="text-sm text-slate-500 mt-1">基于全部笔记文档的 AI 对话，超范围拒答</p>
         </router-link>
         <router-link to="/interview/start"
           class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">

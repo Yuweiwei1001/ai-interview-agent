@@ -13,7 +13,6 @@ import com.interview.agent.interview.plan.InterviewPlan;
 import com.interview.agent.interview.plan.PlanGenerator;
 import com.interview.agent.interview.report.ReportGenerator;
 import com.interview.agent.jd.JdService;
-import com.interview.agent.knowledge.KnowledgeService;
 import com.interview.agent.observability.LlmTraceContextHolder;
 import com.interview.agent.resume.ResumeService;
 import com.interview.agent.sse.SseRegistry;
@@ -47,7 +46,6 @@ public class InterviewService {
     private final ObjectMapper objectMapper;
     private final ReportGenerator reportGenerator;
     private final RoundPersistenceService roundPersistenceService;
-    private final KnowledgeService knowledgeService;
     private final Executor interviewExecutor;
 
     public InterviewService(InterviewSessionMapper sessionMapper, InterviewRoundMapper roundMapper,
@@ -55,7 +53,6 @@ public class InterviewService {
                             PlanGenerator planGenerator, InterviewGraphBuilder graphBuilder,
                             AskQuestionTool askQuestionTool, SseRegistry sseRegistry, ObjectMapper objectMapper,
                             ReportGenerator reportGenerator, RoundPersistenceService roundPersistenceService,
-                            KnowledgeService knowledgeService,
                             @Qualifier("interviewExecutor") Executor interviewExecutor) {
         this.sessionMapper = sessionMapper;
         this.roundMapper = roundMapper;
@@ -68,7 +65,6 @@ public class InterviewService {
         this.objectMapper = objectMapper;
         this.reportGenerator = reportGenerator;
         this.roundPersistenceService = roundPersistenceService;
-        this.knowledgeService = knowledgeService;
         this.interviewExecutor = interviewExecutor;
     }
 
@@ -100,11 +96,6 @@ public class InterviewService {
     public SseEmitter startInterview(InterviewStartDTO dto, String sessionId) {
         Long userId = BaseContext.getCurrentId();
 
-        // 知识库归属校验（不存在/无权限直接拒绝，不创建会话）
-        if (dto.getKnowledgeBaseId() != null) {
-            knowledgeService.getKb(dto.getKnowledgeBaseId(), userId);
-        }
-
         // 注册 SSE 连接
         SseEmitter emitter = sseRegistry.register(sessionId);
         sseRegistry.sendEvent(sessionId, "CONNECTED", sessionId);
@@ -118,7 +109,6 @@ public class InterviewService {
         session.setDirection(dto.getDirection());
         session.setPersona(dto.getPersona());
         session.setDurationMinutes(dto.getDurationMinutes());
-        session.setKnowledgeBaseId(dto.getKnowledgeBaseId());
         session.setStatus("in_progress");
         session.setStartedAt(LocalDateTime.now());
         sessionMapper.insert(session);
@@ -143,7 +133,6 @@ public class InterviewService {
                 initialState.setDirection(dto.getDirection());
                 initialState.setPersona(dto.getPersona());
                 initialState.setDurationMinutes(dto.getDurationMinutes());
-                initialState.setKnowledgeBaseId(dto.getKnowledgeBaseId());
 
                 // 优先复用前端预览阶段透传的计划（用户看到的计划即实际执行的计划）；缺失/非法时才重新生成
                 InterviewPlan plan = dto.getPlan();
