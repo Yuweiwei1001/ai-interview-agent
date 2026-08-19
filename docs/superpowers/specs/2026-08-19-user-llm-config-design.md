@@ -122,8 +122,10 @@ ALTER TABLE llm_trace ADD COLUMN key_source VARCHAR(10) NOT NULL DEFAULT 'system
    - model 输入（DashScope 默认占位 `qwen3.7-max-2026-05-17`）
    - "校验并保存"按钮（后端 test call，loading 态，失败展示原因）
    - "删除配置"按钮（删除后回到未配置态）
-2. **入口**：HomeView 导航加"模型设置"入口
-3. **未配置引导**：前端 `request.ts` 统一拦截 `LLM_KEY_NOT_CONFIGURED` 错误码 → 全局提示"请先配置自己的 LLM API Key"并跳转设置页；面试开始页/问答页在检测到未配置时展示引导横幅（可选，依赖一个轻量 `GET /api/llm-config/status`）
+2. **入口**：HomeView 主页导航加"模型设置"固定入口，用户随时可进入配置页
+3. **面试开始前强制检查**：`InterviewStartView` 进入时调 `GET /api/llm-config/status`；未配置 → 弹出引导提示"使用面试功能前需要先配置自己的 LLM API Key"，提供"去配置"按钮跳转 `/settings/llm`，配置完成返回后可正常开始面试
+4. **问答页同理**：`ChatView` 进入时同样检查 status，未配置展示引导横幅（知识问答同样依赖 chat 模型）
+5. **兜底拦截**：前端 `request.ts` 统一拦截 `LLM_KEY_NOT_CONFIGURED` 错误码 → 全局提示并跳转设置页（防止绕过页面检查直接调接口的场景）
 
 ## 6. API 设计
 
