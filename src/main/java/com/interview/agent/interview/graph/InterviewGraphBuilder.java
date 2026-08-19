@@ -58,8 +58,9 @@ import static com.alibaba.cloud.ai.graph.action.AsyncNodeAction.node_async;
  * START → plan → coordinator ─条件边─→ codingWait(挂起) → evaluate
  *                  │                    ask → evaluate ─条件边─→ 未结束→coordinator（继续）
  *                  │                                              已结束→END
- *                  └─条件边(phase=TEXT 跳过 speaker)→evaluate
  * </pre>
+ * <p>语音面试：TTS 播报钩子内嵌在 AskNode/FollowUpNode 的 askAndWait 之前（异步合成），
+ * 不再使用独立 speaker 节点——该节点位于 ask 之后会在「收到回答后」才播报，时序错误，已移除。
  *
  * <p>关键点：
  * <ul>
@@ -148,7 +149,7 @@ public class InterviewGraphBuilder {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
         CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, knowledgePointService);
-        AskNode askNode = new AskNode(askQuestionTool);
+        AskNode askNode = new AskNode(askQuestionTool, speakerAgent);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
                 codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService,
                 traceHandler);
@@ -170,13 +171,6 @@ public class InterviewGraphBuilder {
             InterviewState interviewState = toInterviewState(state);
             InterviewState updated = askNode.apply(interviewState);
             return Map.of(STATE_KEY, updated);
-        })));
-        graph.addNode("speaker", node_async(withTraceContext((NodeAction) state -> {
-            InterviewState interviewState = toInterviewState(state);
-            // Phase 1: 文字面试直接透传；Phase 2 数字人启用语音合成
-            String spoken = speakerAgent.speak(interviewState.getCurrentQuestion());
-            log.info("SpeakerNode: phase={}, 输出文本长度={}", interviewState.getPhase(), spoken.length());
-            return Map.of(STATE_KEY, interviewState);
         })));
         graph.addNode("evaluate", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
@@ -221,14 +215,12 @@ public class InterviewGraphBuilder {
         graph.addEdge("codingWait", "evaluate");
         graph.addEdge("codingRetryWait", "evaluate");
 
-        // Speaker bypass：文字面试（phase == TEXT）跳过 Speaker 节点直接评估；语音面试走 Speaker 合成
-        graph.addConditionalEdges("ask",
-                edge_async(state -> "TEXT".equalsIgnoreCase(toInterviewState(state).getPhase()) ? "skip_speaker" : "speaker"),
-                Map.of("speaker", "speaker", "skip_speaker", "evaluate"));
-        graph.addEdge("speaker", "evaluate");
+        // ask → evaluate 直连：TTS 播报已前移到 AskNode/FollowUpNode（askAndWait 前异步触发），
+        // 原 speaker 节点在 ask 之后执行会在「收到回答后」才播报题目，时序错误，故移除
+        graph.addEdge("ask", "evaluate");
 
         // 添加 FollowUp 节点
-        FollowUpNode followUpNode = new FollowUpNode(askQuestionTool);
+        FollowUpNode followUpNode = new FollowUpNode(askQuestionTool, speakerAgent);
         graph.addNode("followUp", node_async(withTraceContext((NodeAction) state -> {
             InterviewState interviewState = toInterviewState(state);
             InterviewState updated = followUpNode.apply(interviewState);

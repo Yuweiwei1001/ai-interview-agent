@@ -12,6 +12,8 @@ public class InterviewStartDTO {
     private int durationMinutes = 30;
     /** 可选：前端预览阶段已生成的面试计划，原样透传复用，避免启动时重新生成导致出题与展示的计划不一致 */
     private InterviewPlan plan;
+    /** 交互模式：TEXT（文字面试，默认）/ VOICE（语音面试，ASR 识别 + TTS 播报） */
+    private String phase = "TEXT";
 
     public Long getResumeId() { return resumeId; }
     public void setResumeId(Long resumeId) { this.resumeId = resumeId; }
@@ -25,4 +27,6 @@ public class InterviewStartDTO {
     public void setDurationMinutes(int durationMinutes) { this.durationMinutes = durationMinutes; }
     public InterviewPlan getPlan() { return plan; }
     public void setPlan(InterviewPlan plan) { this.plan = plan; }
+    public String getPhase() { return phase; }
+    public void setPhase(String phase) { this.phase = phase; }
 }

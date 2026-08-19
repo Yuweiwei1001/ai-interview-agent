@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NInput, NButton, NAlert, useDialog } from 'naive-ui';
 import { SseClient, type SseEvent } from '../utils/sse';
+import { useVoiceInterview } from '../utils/voice';
 import { getSession } from '../api/interview';
 import { toDate } from '../utils/datetime';
 import ChatBubble from '../components/ChatBubble.vue';
@@ -56,6 +57,32 @@ const elapsedSeconds = computed(() => {
 const currentQuestionNumber = computed(() =>
   messages.value.reduce((max, m) => Math.max(max, m.questionNumber || 0), 0)
 );
+
+/* 语音面试模式：启动参数 phase=VOICE（或恢复会话时 DB phase=VOICE）。
+   语音仅作输入/输出传输层：ASR 字幕累积为可编辑草稿，发送仍走 REST /answer */
+const isVoiceMode = ref(route.query.phase === 'VOICE');
+const partialSubtitle = ref('');
+const {
+  connected: voiceConnected,
+  asrReady,
+  micActive,
+  speaking: interviewerSpeaking,
+  error: voiceError,
+  connect: connectVoiceChannel,
+  disconnect: disconnectVoiceChannel,
+} = useVoiceInterview();
+
+function connectVoice(id: string) {
+  if (!isVoiceMode.value || isReview.value) return;
+  connectVoiceChannel(id, {
+    onFinal: (text) => {
+      // 定稿字幕追加为回答草稿（可编辑，手动发送）
+      partialSubtitle.value = '';
+      answer.value = answer.value ? answer.value.replace(/[，。\s]*$/, '') + '，' + text : text;
+    },
+    onPartial: (text) => { partialSubtitle.value = text; },
+  });
+}
 
 let sseClient: SseClient | null = null;
 
@@ -125,6 +152,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   sseClient?.disconnect();
+  disconnectVoiceChannel();
   stopPolling();
   if (timerInterval) clearInterval(timerInterval);
 });
@@ -158,6 +186,7 @@ function handleSseEvent(event: SseEvent) {
       sessionId.value = event.data;
       connected.value = true;
       startPolling();
+      connectVoice(event.data);
       break;
     case 'QUESTION_DELTA': {
       // 打字机增量：逐块追加到流式内容
@@ -268,12 +297,15 @@ function startInterview() {
           if (s.report) reportReady.value = true;
           if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
         } else {
+          // 恢复进行中的面试：按 DB phase 判定是否重连语音通道（刷新/编码页返回场景）
+          isVoiceMode.value = s?.phase === 'VOICE';
           startPolling();
           sseClient = new SseClient();
           sseClient.connectGet(`/api/interviews/${existingSessionId}/stream`, handleSseEvent, () => {
             error.value = '连接失败';
             thinking.value = false;
           });
+          connectVoice(existingSessionId);
         }
       })
       .catch(() => {
@@ -297,7 +329,8 @@ function startInterview() {
     jdId: route.query.jdId ? Number(route.query.jdId) : null,
     direction: route.query.direction || null,
     persona: route.query.persona || 'neutral',
-    durationMinutes: Number(route.query.durationMinutes) || 30
+    durationMinutes: Number(route.query.durationMinutes) || 30,
+    phase: isVoiceMode.value ? 'VOICE' : 'TEXT'
   };
 
   // 复用开始页预览生成的面试计划，保证实际出题与用户看到的计划一致；解析失败则回退由后端自行生成
@@ -370,6 +403,7 @@ async function submitAnswer() {
     timestamp: new Date().toLocaleTimeString()
   });
   answer.value = '';
+  partialSubtitle.value = '';
   thinking.value = true;
   try {
     await fetch(`/api/interviews/${sessionId.value}/answer`, {
@@ -498,16 +532,36 @@ function goToReport() {
 
     <!-- Input：回顾模式下隐藏回答输入区 -->
     <div v-if="!isReview" class="bg-white/80 backdrop-blur border-t border-slate-200/70 px-4 sm:px-6 py-4 shrink-0">
-      <div class="flex gap-3 max-w-4xl mx-auto items-end">
-        <n-input v-model:value="answer" type="textarea" :disabled="!connected || completed"
-          placeholder="输入你的回答...（Ctrl + Enter 发送）"
-          :autosize="{ minRows: 2, maxRows: 6 }"
-          class="flex-1"
-          @keydown.ctrl.enter="submitAnswer" />
-        <n-button type="primary" size="large" :disabled="!answer.trim() || !connected || completed"
-          @click="submitAnswer">
-          发送
-        </n-button>
+      <div class="max-w-4xl mx-auto">
+        <!-- 语音模式状态条 -->
+        <div v-if="isVoiceMode" class="mb-2 flex items-center gap-4 text-xs">
+          <span class="flex items-center gap-1.5" :class="voiceConnected ? 'text-green-600' : 'text-slate-400'">
+            <span class="w-1.5 h-1.5 rounded-full" :class="voiceConnected ? 'bg-green-500' : 'bg-slate-300'"></span>
+            语音通道
+          </span>
+          <span class="flex items-center gap-1.5" :class="asrReady ? 'text-green-600' : 'text-amber-600'">
+            <span class="w-1.5 h-1.5 rounded-full" :class="asrReady ? 'bg-green-500' : 'bg-amber-400'"></span>
+            {{ asrReady ? '语音识别就绪' : '语音识别初始化中…' }}
+          </span>
+          <span v-if="micActive" class="text-slate-500">🎙 麦克风开启</span>
+          <span v-if="interviewerSpeaking" class="text-blue-600 animate-pulse">🔊 面试官说话中…</span>
+          <span v-if="voiceError" class="text-red-500">{{ voiceError }}</span>
+        </div>
+        <!-- 实时识别预览（partial 字幕，未定稿） -->
+        <div v-if="isVoiceMode && partialSubtitle" class="mb-2 text-sm text-slate-500 italic truncate">
+          识别中：{{ partialSubtitle }}
+        </div>
+        <div class="flex gap-3 items-end">
+          <n-input v-model:value="answer" type="textarea" :disabled="!connected || completed"
+            :placeholder="isVoiceMode ? '开口说话自动转写为文字，可编辑后发送...（Ctrl + Enter 发送）' : '输入你的回答...（Ctrl + Enter 发送）'"
+            :autosize="{ minRows: 2, maxRows: 6 }"
+            class="flex-1"
+            @keydown.ctrl.enter="submitAnswer" />
+          <n-button type="primary" size="large" :disabled="!answer.trim() || !connected || completed"
+            @click="submitAnswer">
+            发送
+          </n-button>
+        </div>
       </div>
     </div>
   </div>

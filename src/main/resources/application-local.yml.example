@@ -5,3 +5,12 @@ spring:
   ai:
     dashscope:
       api-key: 你的-DashScope-API-Key
+
+# 语音面试（可选覆盖）：默认复用 DASHSCOPE_API_KEY 环境变量，仅在使用独立密钥时配置
+# interview:
+#   voice:
+#     enabled: true
+#     asr:
+#       api-key: 你的-ASR-API-Key
+#     tts:
+#       api-key: 你的-TTS-API-Key

@@ -65,6 +65,31 @@
             <artifactId>spring-ai-alibaba-graph-core</artifactId>
             <version>${spring-ai-alibaba.version}</version>
         </dependency>
+        <!-- WebSocket（语音面试实时通道） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+        <!-- DashScope SDK：语音面试 ASR/TTS（audio.omni / audio.qwen_tts_realtime 仅较新版本提供，
+             显式声明以覆盖 spring-ai-alibaba-starter-dashscope 传递的旧版本） -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>dashscope-sdk-java</artifactId>
+            <version>2.22.7</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-simple</artifactId>
+                </exclusion>
+                <!-- 冲突修复：dashscope 传递的 jsonschema-generator 4.31.1 会压制 Spring AI 的 4.38.0，
+                     导致 jsonschema-module-jackson 4.38.0 引用缺失的 AnnotationHelper（NoClassDefFoundError），
+                     排除后统一回 4.38.0（仅影响 dashscope 的 function-calling schema 生成，语音实时会话不依赖） -->
+                <exclusion>
+                    <groupId>com.github.victools</groupId>
+                    <artifactId>jsonschema-generator</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <!-- Elasticsearch 向量存储（知识库 RAG） -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

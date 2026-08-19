@@ -14,6 +14,8 @@ export interface InterviewSession {
   jdId: number | null;
   direction: string;
   persona: string;
+  /** TEXT: 文字面试 / VOICE: 语音面试 */
+  phase?: string;
   durationMinutes: number;
   status: string;
   currentQuestion?: string | null;

@@ -15,6 +15,8 @@ const jdId = ref<number | null>(null);
 const direction = ref('');
 const persona = ref('neutral');
 const durationMinutes = ref(30);
+/* 面试模式：TEXT 文字面试 / VOICE 语音面试（ASR 转写 + TTS 播报，建议佩戴耳机） */
+const mode = ref('TEXT');
 const loading = ref(false);
 const plan = ref<InterviewPlan | null>(null);
 const error = ref('');
@@ -26,6 +28,10 @@ const personaOptions = [
   { label: '中性', value: 'neutral' },
   { label: '温和', value: 'gentle' },
   { label: '压力', value: 'pressure' }
+];
+const modeOptions = [
+  { label: '文字面试', value: 'TEXT' },
+  { label: '语音面试', value: 'VOICE' }
 ];
 
 onMounted(async () => {
@@ -70,7 +76,8 @@ function startInterview() {
       jdId: jdId.value,
       direction: direction.value,
       persona: persona.value,
-      durationMinutes: durationMinutes.value
+      durationMinutes: durationMinutes.value,
+      phase: mode.value
     }
   });
 }
@@ -103,8 +110,8 @@ function startInterview() {
           <n-input v-model:value="direction" placeholder="如：Java 后端开发" size="large" />
         </div>
 
-        <!-- 美化：风格与时长并排，窄屏自动换行 -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- 美化：风格/时长/模式并排，窄屏自动换行 -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1.5">面试风格</label>
             <n-select v-model:value="persona" :options="personaOptions" size="large" />
@@ -113,7 +120,14 @@ function startInterview() {
             <label class="block text-sm font-medium text-slate-700 mb-1.5">时长（分钟）</label>
             <n-input-number v-model:value="durationMinutes" :min="10" :max="120" size="large" class="w-full" />
           </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-1.5">面试模式</label>
+            <n-select v-model:value="mode" :options="modeOptions" size="large" />
+          </div>
         </div>
+        <p v-if="mode === 'VOICE'" class="text-xs text-slate-400 -mt-2">
+          语音面试：面试官语音播报题目，你开口说话自动转写为可编辑文字，确认后发送。建议佩戴耳机以获得最佳体验。
+        </p>
 
         <n-alert v-if="error" type="error" :bordered="false" class="rounded-lg">{{ error }}</n-alert>
 

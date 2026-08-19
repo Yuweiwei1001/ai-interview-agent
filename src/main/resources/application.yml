@@ -40,6 +40,16 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
+# 语音面试（ASR/TTS 实时通道，DashScope qwen3-asr/tts-flash-realtime）
+# api-key 复用 DASHSCOPE_API_KEY 环境变量；未配置时语音链路自动降级（ASR/TTS 静默失败，文本流程不受影响）
+interview:
+  voice:
+    enabled: true
+    asr:
+      api-key: ${DASHSCOPE_API_KEY:}
+    tts:
+      api-key: ${DASHSCOPE_API_KEY:}
+
 jwt:
   secret: ${JWT_SECRET:your-jwt-secret-key-at-least-256-bits-change-in-production}
   access-expiration: 7200000
