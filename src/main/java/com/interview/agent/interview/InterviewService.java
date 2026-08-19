@@ -108,6 +108,7 @@ public class InterviewService {
         session.setJdId(dto.getJdId());
         session.setDirection(dto.getDirection());
         session.setPersona(dto.getPersona());
+        session.setPhase(dto.getPhase());
         session.setDurationMinutes(dto.getDurationMinutes());
         session.setStatus("in_progress");
         session.setStartedAt(LocalDateTime.now());
@@ -132,6 +133,7 @@ public class InterviewService {
                 }
                 initialState.setDirection(dto.getDirection());
                 initialState.setPersona(dto.getPersona());
+                initialState.setPhase(dto.getPhase());
                 initialState.setDurationMinutes(dto.getDurationMinutes());
 
                 // 优先复用前端预览阶段透传的计划（用户看到的计划即实际执行的计划）；缺失/非法时才重新生成

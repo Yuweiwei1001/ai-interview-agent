@@ -1,5 +1,6 @@
 package com.interview.agent.interview.graph.node;
 
+import com.interview.agent.interview.agent.SpeakerAgent;
 import com.interview.agent.interview.agent.tool.AskQuestionTool;
 import com.interview.agent.interview.graph.InterviewState;
 import org.slf4j.Logger;
@@ -10,9 +11,11 @@ import java.util.function.Function;
 public class AskNode implements Function<InterviewState, InterviewState> {
     private static final Logger log = LoggerFactory.getLogger(AskNode.class);
     private final AskQuestionTool askQuestionTool;
+    private final SpeakerAgent speakerAgent;
 
-    public AskNode(AskQuestionTool askQuestionTool) {
+    public AskNode(AskQuestionTool askQuestionTool, SpeakerAgent speakerAgent) {
         this.askQuestionTool = askQuestionTool;
+        this.speakerAgent = speakerAgent;
     }
 
     @Override
@@ -25,6 +28,9 @@ public class AskNode implements Function<InterviewState, InterviewState> {
             question = "请介绍一下你的技术背景和项目经验。";
             state.setCurrentQuestion(question);
         }
+
+        // 语音模式：TTS 播报必须在推题前触发（虚拟线程异步合成，与 SSE 推题并行，不阻塞图线程）
+        speakerAgent.speakIfVoice(state.getSessionId(), state.getPhase(), question);
 
         // 推送思考中状态
         askQuestionTool.sendThinking(state.getSessionId());
