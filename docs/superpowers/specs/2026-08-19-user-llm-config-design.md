@@ -65,9 +65,13 @@ CREATE TABLE user_llm_config (
 ```sql
 ALTER TABLE llm_trace ADD COLUMN key_source VARCHAR(10) NOT NULL DEFAULT 'system'
     COMMENT 'system=系统key / user=用户自有key（成本记0）';
+ALTER TABLE llm_trace ADD COLUMN user_id BIGINT DEFAULT NULL
+    COMMENT '调用方用户ID（取自 BaseContext），支持按用户统计用量；存量数据为 NULL';
 ```
 
-`key_source=user` 的行 `estimated_cost` 写 0（花的是用户额度，不计入部署方成本）；观测台页面与成本汇总接口需兼容该列（成本统计只聚合 `key_source='system'`）。
+**token 用量对所有调用照常记录**（`prompt_tokens`/`completion_tokens`/`total_tokens` 来自响应 Usage，一行不少）；`key_source=user` 的行仅 `estimated_cost` 写 0（花的是用户额度，不计入部署方成本）。观测台页面与成本汇总接口需兼容该列（成本统计只聚合 `key_source='system'`）。
+
+`user_id` 列支撑按用户维度的用量统计（设置页"我的用量"），由路由层在委托调用时从上下文落入（见 §4.1）。
 
 ## 4. 后端组件设计
 
@@ -86,7 +90,7 @@ ALTER TABLE llm_trace ADD COLUMN key_source VARCHAR(10) NOT NULL DEFAULT 'system
 ### 4.1 路由代理关键行为
 
 - `call()` 与 `stream()` 入口读取 `BaseContext.getCurrentId()`；为 null 时按"未配置"处理（抛出 `LlmKeyNotConfiguredException`），系统不开任何绕过路由的内部通道
-- key_source 标记：委托给用户模型时，在 `LlmTraceContext` 扩展字段 `keySource=user`（随 LlmCallWrapper 快照传播），trace handler 读取后落 `llm_trace.key_source`
+- 归因标记：委托给用户模型时，在 `LlmTraceContext` 扩展字段 `keySource=user` 与 `userId`（随 LlmCallWrapper 快照传播）；trace handler 读取后落 `llm_trace.key_source` 与 `llm_trace.user_id`。系统 key 路径同样落 `user_id`（从 BaseContext/上下文取），保证用量统计覆盖全部调用
 - DashScope 委托模型保留现有约束：`enable-thinking=true`（qwen3.7-max 强制）；OpenAI 兼容模型不带该参数
 - 委托模型的 `defaultOptions.model` 设为用户配置的 model
 
@@ -122,6 +126,7 @@ ALTER TABLE llm_trace ADD COLUMN key_source VARCHAR(10) NOT NULL DEFAULT 'system
    - model 输入（DashScope 默认占位 `qwen3.7-max-2026-05-17`）
    - "校验并保存"按钮（后端 test call，loading 态，失败展示原因）
    - "删除配置"按钮（删除后回到未配置态）
+   - "我的用量"区块：调 `/api/llm-config/usage` 展示累计调用次数与 prompt/completion/total tokens（未配置用户也可看到自己历史用量）
 2. **入口**：HomeView 主页导航加"模型设置"固定入口，用户随时可进入配置页
 3. **面试开始前强制检查**：`InterviewStartView` 进入时调 `GET /api/llm-config/status`；未配置 → 弹出引导提示"使用面试功能前需要先配置自己的 LLM API Key"，提供"去配置"按钮跳转 `/settings/llm`，配置完成返回后可正常开始面试
 4. **问答页同理**：`ChatView` 进入时同样检查 status，未配置展示引导横幅（知识问答同样依赖 chat 模型）
@@ -135,6 +140,7 @@ ALTER TABLE llm_trace ADD COLUMN key_source VARCHAR(10) NOT NULL DEFAULT 'system
 | PUT | `/api/llm-config` | 保存配置（test call 校验通过后 upsert）；失败返回具体校验错误 |
 | DELETE | `/api/llm-config` | 删除当前用户配置并失效缓存 |
 | GET | `/api/llm-config/status` | 轻量状态：`{ configured: true/false }`，供前端引导横幅使用 |
+| GET | `/api/llm-config/usage` | 当前用户累计用量：`{ totalCalls, promptTokens, completionTokens, totalTokens }`（聚合 `llm_trace.user_id` = 当前用户，含系统 key 时期的历史用量） |
 
 请求体（PUT）：`{ provider, apiKey, baseUrl?, model }`；响应（GET）：
 `{ provider, apiKeyMasked, baseUrl, model, updatedAt }`
@@ -157,7 +163,7 @@ ALTER TABLE llm_trace ADD COLUMN key_source VARCHAR(10) NOT NULL DEFAULT 'system
    - `UserRoutingChatModel`：已配置用户命中委托、未配置抛异常、缓存命中/失效
    - `LlmCallWrapper` 快照传播：提交线程 userId 在执行线程可读
 2. **端到端（本地环境自测，遵循现有 verify-*.ps1 惯例）**：
-   - 新增 `verify-llm-config.ps1`：登录 → 保存配置（真实 DashScope key + qwen3.7-max）→ 发起知识库问答 → 查 llm_trace 确认 `key_source=user` 且 cost=0 → 删除配置 → 再发问答应返回 `LLM_KEY_NOT_CONFIGURED`
+   - 新增 `verify-llm-config.ps1`：登录 → 保存配置（真实 DashScope key + qwen3.7-max）→ 发起知识库问答 → 查 llm_trace 确认 `key_source=user`、`user_id` 正确、tokens > 0 且 cost=0 → 调 `/api/llm-config/usage` 确认累计值增长 → 删除配置 → 再发问答应返回 `LLM_KEY_NOT_CONFIGURED`
    - 前端手工验证：设置页保存/脱敏回显/删除；未配置用户进入面试被引导
 3. **回归**：系统 key 场景（embedding 向量化、知识库检索）不受影响；评测模块（eval）驱动账号 testuser 需先配置有效 key 再跑 golden set 回归
 
