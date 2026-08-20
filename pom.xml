@@ -186,5 +186,13 @@
             <url>https://repo.spring.io/milestone</url>
             <snapshots><enabled>false</enabled></snapshots>
         </repository>
+        <!-- 阿里云公共仓库：聚合 Maven Central 与已停服 JCenter 旧制品，
+             tinypinyin(com.github.promeg:tinypinyin:2.0.3) 原发于 JCenter，仅此处可解析。
+             详见 TinyPinyin 官方 README 推荐配置。 -->
+        <repository>
+            <id>aliyun-public</id>
+            <name>Aliyun Public</name>
+            <url>https://maven.aliyun.com/repository/public</url>
+        </repository>
     </repositories>
 </project>
