@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { NInput, NButton, NAlert, useDialog } from 'naive-ui';
 import { SseClient, type SseEvent } from '../utils/sse';
-import { useVoiceInterview } from '../utils/voice';
+import { useVoiceInterview, type AsrCorrection, type CorrectionItem } from '../utils/voice';
 import { getSession } from '../api/interview';
 import { toDate } from '../utils/datetime';
 import ChatBubble from '../components/ChatBubble.vue';
@@ -75,13 +75,87 @@ const {
 function connectVoice(id: string) {
   if (!isVoiceMode.value || isReview.value) return;
   connectVoiceChannel(id, {
-    onFinal: (text) => {
-      // 定稿字幕追加为回答草稿（可编辑，手动发送）
+    onFinal: (text, seq, suspect) => {
+      // 定稿字幕追加为回答草稿（可编辑，手动发送）；seq 记录句级状态供纠错补发对齐
       partialSubtitle.value = '';
+      if (seq >= 0) {
+        draftSentences.set(seq, { text, edited: false });
+      }
+      if (suspect) suspectCount.value += 1;
       answer.value = answer.value ? answer.value.replace(/[，。\s]*$/, '') + '，' + text : text;
     },
     onPartial: (text) => { partialSubtitle.value = text; },
+    onCorrection: (correction) => handleAsrCorrection(correction),
   });
+}
+
+/* 语音草稿句级状态（ASR 热词纠错方案 4.4.3）：seq → 句子文本 + 是否已被候选人手动编辑。
+   correction 异步补发（P95 < 2s）而候选人随时在编辑草稿，按竞态三规则处理：
+   ① 未触碰句：high 置信自动替换 + 计数，low 悬浮候选点选；
+   ② 已手动编辑句：跳过自动替换，仅提示“有可用纠错建议”（人工输入永远优先）；
+   ③ 已提交/不存在句：直接丢弃 */
+interface DraftSentence {
+  text: string;
+  edited: boolean;
+}
+let draftSentences = new Map<number, DraftSentence>();
+/* 已自动应用的纠错数（high 置信替换计数） */
+const correctedCount = ref(0);
+/* 待处理纠错候选（low 置信候选 + 已编辑句的建议，点选后才应用） */
+const pendingSuggestions = ref<CorrectionItem[]>([]);
+/* 疑似 corpus 幻觉的 final 计数（弱化展示，提示候选人核对） */
+const suspectCount = ref(0);
+
+function handleAsrCorrection(correction: AsrCorrection) {
+  // 规则 ③：所在草稿已提交（句子已清理）→ 直接丢弃
+  const sentence = draftSentences.get(correction.seq);
+  if (!sentence) return;
+  const highs = correction.corrections.filter(c => c.confidence === 'high');
+  const lows = correction.corrections.filter(c => c.confidence === 'low');
+  // 规则 ②：已被候选人手动编辑 → 不自动替换，仅提示（点选后才应用）
+  if (sentence.edited) {
+    if (correction.corrections.length > 0) {
+      pendingSuggestions.value.push(...correction.corrections);
+    }
+    return;
+  }
+  // 规则 ①：未被触碰 → high 自动替换草稿中该句 + 计数；low 悬浮候选点选
+  if (highs.length > 0 && correction.text) {
+    applySentenceCorrection(sentence.text, correction.text);
+    sentence.text = correction.text;
+    correctedCount.value += highs.length;
+  }
+  if (lows.length > 0) {
+    pendingSuggestions.value.push(...lows);
+  }
+}
+
+/* 替换草稿中的整句文本（首次出现；句子已被用户改到找不到时保守跳过） */
+function applySentenceCorrection(oldText: string, newText: string) {
+  if (!oldText || !answer.value.includes(oldText)) return;
+  answer.value = answer.value.replace(oldText, newText);
+}
+
+/* 应用/忽略一条候选建议（low 置信或已编辑句建议，点选后应用） */
+function applySuggestion(index: number) {
+  const s = pendingSuggestions.value[index];
+  if (!s) return;
+  if (s.from && answer.value.includes(s.from)) {
+    answer.value = answer.value.replace(s.from, s.to);
+    correctedCount.value += 1;
+  }
+  pendingSuggestions.value.splice(index, 1);
+}
+
+function dismissSuggestion(index: number) {
+  pendingSuggestions.value.splice(index, 1);
+}
+
+/* 手动输入（仅用户键入触发，程序追加不触发 input 事件）：人工输入永远优先于机器修正，
+   全部未提交句子标记为已编辑，后续 correction 不再自动替换 */
+function handleAnswerInput() {
+  if (!isVoiceMode.value) return;
+  draftSentences.forEach(s => { s.edited = true; });
 }
 
 let sseClient: SseClient | null = null;
@@ -415,6 +489,11 @@ async function submitAnswer() {
   });
   answer.value = '';
   partialSubtitle.value = '';
+  // 草稿已提交：句级状态清空，后续补发的 correction 按竞态规则③直接丢弃
+  draftSentences.clear();
+  pendingSuggestions.value = [];
+  correctedCount.value = 0;
+  suspectCount.value = 0;
   thinking.value = true;
   try {
     await fetch(`/api/interviews/${sessionId.value}/answer`, {
@@ -562,11 +641,30 @@ function goToReport() {
         <div v-if="isVoiceMode && partialSubtitle" class="mb-2 text-sm text-slate-500 italic truncate">
           识别中：{{ partialSubtitle }}
         </div>
+        <!-- ASR 术语纠错提示条（方案 4.4.4）：自动修正计数 + 疑似幻觉弱化提示 + 候选点选 -->
+        <div v-if="isVoiceMode && (correctedCount > 0 || suspectCount > 0 || pendingSuggestions.length > 0)"
+          class="mb-2 flex flex-wrap items-center gap-2 text-xs">
+          <span v-if="correctedCount > 0"
+            class="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg">
+            ✅ 已自动修正 {{ correctedCount }} 处术语
+          </span>
+          <span v-if="suspectCount > 0"
+            class="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg">
+            ⚠️ 有 {{ suspectCount }} 句识别结果疑似异常，请核对后提交
+          </span>
+          <span v-for="(s, i) in pendingSuggestions" :key="`${s.from}-${i}`"
+            class="inline-flex items-center gap-1.5 text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg">
+            「{{ s.from }}」→「{{ s.to }}」?
+            <button type="button" class="underline hover:text-blue-900" @click="applySuggestion(i)">应用</button>
+            <button type="button" class="underline hover:text-slate-500" @click="dismissSuggestion(i)">忽略</button>
+          </span>
+        </div>
         <div class="flex gap-3 items-end">
           <n-input v-model:value="answer" type="textarea" :disabled="!connected || completed"
             :placeholder="isVoiceMode ? '开口说话自动转写为文字，可编辑后发送...（Enter 发送，Shift + Enter 换行）' : '输入你的回答...（Enter 发送，Shift + Enter 换行）'"
             :autosize="{ minRows: 2, maxRows: 6 }"
             class="flex-1"
+            @input="handleAnswerInput"
             @keydown.enter="handleInputKeydown" />
           <n-button type="primary" size="large" :disabled="!answer.trim() || !connected || completed"
             @click="submitAnswer">

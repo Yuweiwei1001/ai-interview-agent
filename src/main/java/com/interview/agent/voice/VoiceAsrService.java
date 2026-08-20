@@ -37,6 +37,10 @@ import java.util.function.Consumer;
  *   <li>onClose 仅移除“自己这条连接”（compute 比较引用），避免重连后旧回调误删新连接</li>
  *   <li>断线由上层（WS handler）检测后调 restartTranscription 重建</li>
  * </ul>
+ *
+ * <p>会话级热词 corpus 偏置（ASR 热词纠错方案 4.2）：仅会话级热词（≤maxTerms）作为 corpus 传给 ASR，
+ * 从识别阶段减少术语错误；corpus 存在幻觉输出风险（原样输出词表），final 侧做编辑距离检测，
+ * 疑似幻觉不丢弃字幕，仅 suspect 标记下发由候选人核对（丢弃字幕违反“不能比没有更差”总原则）。
  */
 @Service
 public class VoiceAsrService {
@@ -53,6 +57,9 @@ public class VoiceAsrService {
         this.properties = properties;
     }
 
+    /** final 定稿回调载体：text + 疑似 corpus 幻觉标记 */
+    public record FinalTranscript(String text, boolean suspect) {}
+
     private Object lockFor(String sessionId) {
         return sessionLocks.computeIfAbsent(sessionId, k -> new Object());
     }
@@ -60,36 +67,40 @@ public class VoiceAsrService {
     /**
      * 启动转录会话（异步建连，就绪后回调 onReady）。
      *
-     * @param onFinal   一句话定稿回调（VAD 切段）
-     * @param onPartial 实时片段回调（字幕预览），可为 null
-     * @param onReady   连接就绪回调，可为 null
-     * @param onError   错误回调
+     * @param corpusText 会话级热词 corpus 偏置（逗号分隔术语串，null/空 = 不传 corpus）
+     * @param onFinal    一句话定稿回调（VAD 切段，携带 corpus 幻觉 suspect 标记）
+     * @param onPartial  实时片段回调（字幕预览），可为 null
+     * @param onReady    连接就绪回调，可为 null
+     * @param onError    错误回调
      */
     public void startTranscription(String sessionId,
-                                   Consumer<String> onFinal,
+                                   String corpusText,
+                                   Consumer<FinalTranscript> onFinal,
                                    Consumer<String> onPartial,
                                    Runnable onReady,
                                    Consumer<Throwable> onError) {
         synchronized (lockFor(sessionId)) {
-            startLocked(sessionId, onFinal, onPartial, onReady, onError);
+            startLocked(sessionId, corpusText, onFinal, onPartial, onReady, onError);
         }
     }
 
     /** 断线重连：停旧连接（停不掉也忽略）后重建，并最多等待 1s 验证就绪 */
     public void restartTranscription(String sessionId,
-                                     Consumer<String> onFinal,
+                                     String corpusText,
+                                     Consumer<FinalTranscript> onFinal,
                                      Consumer<String> onPartial,
                                      Runnable onReady,
                                      Consumer<Throwable> onError) {
         synchronized (lockFor(sessionId)) {
             log.info("[{}] 重连 ASR（stop + start）", sessionId);
             stopLocked(sessionId);
-            startLocked(sessionId, onFinal, onPartial, onReady, onError);
+            startLocked(sessionId, corpusText, onFinal, onPartial, onReady, onError);
         }
     }
 
     private void startLocked(String sessionId,
-                             Consumer<String> onFinal,
+                             String corpusText,
+                             Consumer<FinalTranscript> onFinal,
                              Consumer<String> onPartial,
                              Runnable onReady,
                              Consumer<Throwable> onError) {
@@ -134,7 +145,7 @@ public class VoiceAsrService {
 
             OmniRealtimeConversation conversation = new OmniRealtimeConversation(param, callback);
             conversationRef.set(conversation);
-            AsrSession asrSession = new AsrSession(conversation);
+            AsrSession asrSession = new AsrSession(conversation, corpusText);
             sessions.put(sessionId, asrSession);
 
             Thread connectThread = new Thread(() -> {
@@ -145,6 +156,14 @@ public class VoiceAsrService {
                     transcriptionParam.setLanguage(cfg.getLanguage());
                     transcriptionParam.setInputSampleRate(cfg.getSampleRate());
                     transcriptionParam.setInputAudioFormat(cfg.getFormat());
+                    // 会话级热词 corpus 偏置：仅词表克制地传（≤maxTerms，逗号分隔不附加解释文字）。
+                    // 词表越长幻觉爆炸半径越大；未开启/无热词则完全不传，行为与旧版本一致
+                    VoiceProperties.Corpus corpusCfg = properties.getCorpus();
+                    if (corpusCfg.isEnabled() && corpusText != null && !corpusText.isBlank()) {
+                        transcriptionParam.setCorpusText(corpusText);
+                        log.info("[{}] ASR corpus 偏置已启用: terms={}", sessionId,
+                                corpusText.split(",").length);
+                    }
 
                     OmniRealtimeConfig config = OmniRealtimeConfig.builder()
                             .modalities(Collections.singletonList(OmniRealtimeModality.TEXT))
@@ -246,9 +265,9 @@ public class VoiceAsrService {
         sessions.clear();
     }
 
-    /** 事件分发：completed → onFinal；text/delta → onPartial；error → onError */
+    /** 事件分发：completed → onFinal（携带幻觉 suspect 标记）；text/delta → onPartial；error → onError */
     private void dispatchEvent(String sessionId, JsonObject message,
-                               Consumer<String> onFinal, Consumer<String> onPartial,
+                               Consumer<FinalTranscript> onFinal, Consumer<String> onPartial,
                                Consumer<Throwable> onError) {
         try {
             String type = message.has("type") ? message.get("type").getAsString() : "";
@@ -256,7 +275,7 @@ public class VoiceAsrService {
                 case "conversation.item.input_audio_transcription.completed" -> {
                     String transcript = message.has("transcript") ? message.get("transcript").getAsString() : "";
                     if (transcript != null && !transcript.isBlank()) {
-                        onFinal.accept(transcript);
+                        onFinal.accept(new FinalTranscript(transcript, isSuspectedCorpusHallucination(sessionId, transcript)));
                     }
                 }
                 case "conversation.item.input_audio_transcription.text",
@@ -320,13 +339,77 @@ public class VoiceAsrService {
         return null;
     }
 
-    /** ASR 会话：连接 + 就绪 latch（updateSession 完成后就绪） */
+    /**
+     * corpus 幻觉检测（ASR 热词纠错方案 4.2.2）：已知风险（bailian-speech-demo#50）是模型
+     * 有概率把 corpus 内容整体输出为转写结果。幻觉特征是原样输出词表拼接串、无自然语句结构，
+     * 检测信号为 final 文本与 corpus 拼接串的归一化编辑距离极小。
+     * 判据用编辑距离而非字符重叠率：后者对术语密集句误杀率极高
+     * （开场高频句式“我熟悉 Redis、MySQL、Kafka…”重叠率轻松超 60%）。
+     * 处置是降级不丢弃：suspect 标记下发，裁决权留给候选人。
+     */
+    private boolean isSuspectedCorpusHallucination(String sessionId, String transcript) {
+        try {
+            AsrSession session = sessions.get(sessionId);
+            String corpus = session == null ? null : session.corpusText;
+            if (corpus == null || corpus.isBlank()) {
+                return false;
+            }
+            VoiceProperties.Corpus cfg = properties.getCorpus();
+            if (!cfg.isEnabled()) {
+                return false;
+            }
+            double ratio = normalizedEditDistanceRatio(transcript, corpus);
+            if (ratio <= cfg.getHallucinationEditDistanceThreshold()) {
+                log.warn("[{}] corpus_hallucination: final 与 corpus 拼接串编辑距离 {} ≤ {}（疑似幻觉，suspect 标记下发）",
+                        sessionId, String.format("%.3f", ratio), cfg.getHallucinationEditDistanceThreshold());
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            // 检测自身异常不影响字幕下发
+            log.debug("[{}] corpus 幻觉检测异常（按非幻觉处理）: {}", sessionId, e.getMessage());
+            return false;
+        }
+    }
+
+    /** 归一化（去空格/标点/小写）后的编辑距离比率：dist / max(len)。final ≈ corpus 原样输出时 ≈ 0 */
+    static double normalizedEditDistanceRatio(String a, String b) {
+        String x = a == null ? "" : a.toLowerCase().replaceAll("\\s+|\\p{Punct}", "");
+        String y = b == null ? "" : b.toLowerCase().replaceAll("\\s+|\\p{Punct}", "");
+        if (x.isEmpty() || y.isEmpty()) return 1.0;
+        int max = Math.max(x.length(), y.length());
+        return (double) editDistance(x, y) / max;
+    }
+
+    /** 经典 Levenshtein 编辑距离（双行 DP） */
+    static int editDistance(String a, String b) {
+        if (a.equals(b)) return 0;
+        int[] prev = new int[b.length() + 1];
+        int[] cur = new int[b.length() + 1];
+        for (int j = 0; j <= b.length(); j++) prev[j] = j;
+        for (int i = 1; i <= a.length(); i++) {
+            cur[0] = i;
+            for (int j = 1; j <= b.length(); j++) {
+                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
+                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+            int[] tmp = prev;
+            prev = cur;
+            cur = tmp;
+        }
+        return prev[b.length()];
+    }
+
+    /** ASR 会话：连接 + 就绪 latch（updateSession 完成后就绪）+ 会话级 corpus 快照 */
     private static class AsrSession {
         private final OmniRealtimeConversation conversation;
         private final CountDownLatch readyLatch = new CountDownLatch(1);
+        /** 本连接的 corpus 快照（幻觉检测用，连接重建时随回调重建） */
+        private final String corpusText;
 
-        AsrSession(OmniRealtimeConversation conversation) {
+        AsrSession(OmniRealtimeConversation conversation, String corpusText) {
             this.conversation = conversation;
+            this.corpusText = corpusText;
         }
 
         void markReady() {

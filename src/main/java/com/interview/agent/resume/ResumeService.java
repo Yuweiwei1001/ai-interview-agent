@@ -2,6 +2,7 @@ package com.interview.agent.resume;
 
 import com.interview.agent.common.context.BaseContext;
 import com.interview.agent.common.exception.BaseException;
+import com.interview.agent.hotword.TermExtractService;
 import com.interview.agent.resume.parser.TikaTextParser;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,10 +25,13 @@ public class ResumeService {
 
     private final ResumeMapper resumeMapper;
     private final TikaTextParser textParser;
+    private final TermExtractService termExtractService;
 
-    public ResumeService(ResumeMapper resumeMapper, TikaTextParser textParser) {
+    public ResumeService(ResumeMapper resumeMapper, TikaTextParser textParser,
+                         TermExtractService termExtractService) {
         this.resumeMapper = resumeMapper;
         this.textParser = textParser;
+        this.termExtractService = termExtractService;
     }
 
     public ResumeUploadVO upload(MultipartFile file) {
@@ -54,6 +58,9 @@ public class ResumeService {
             resume.setRawText(rawText);
             resume.setContentHash(contentHash);
             resumeMapper.insert(resume);
+
+            // 热词抽取（ASR 热词纠错方案 4.1.1）：异步执行，上传与面试间天然有时间差，不阻塞上传接口
+            termExtractService.extractAsync("resume", resume.getId(), userId, rawText);
 
             ResumeUploadVO vo = new ResumeUploadVO();
             vo.setId(resume.getId());
@@ -107,6 +114,8 @@ public class ResumeService {
         }
         int affected = resumeMapper.update(resume);
         if (affected == 0) throw new BaseException("简历不存在或无权修改");
+        // 编辑后重新抽取（同源全删全插幂等）
+        termExtractService.extractAsync("resume", id, userId, rawText);
         return resumeMapper.findById(id);
     }
 

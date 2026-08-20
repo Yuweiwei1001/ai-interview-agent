@@ -13,6 +13,8 @@ import java.util.Map;
  * - POST /api/eval/run              提交评测运行（异步），返回 runId
  * - GET  /api/eval/runs/{runId}     查询运行状态与报告
  * - POST /api/eval/calibrate        同步执行 judge 校准（人工标注一致性）
+ * - POST /api/eval/noise-drift      评分漂移回归（ASR 噪声注入，纠错链路/Prompt 改动后必跑）
+ * - POST /api/eval/correction-gate  干扰集门禁（干净文本过纠错链路，corrections 必须为 0）
  */
 @RestController
 @RequestMapping("/api/eval")
@@ -71,5 +73,17 @@ public class EvalController {
     @PostMapping("/calibrate")
     public Result<JudgeCalibrator.CalibrationResult> calibrate() {
         return Result.success(evalService.calibrate());
+    }
+
+    /** 评分漂移回归（ASR 热词纠错方案 4.5.1）：固定样例干净/噪声版各评一次，delta ≤ 0.5 通过 */
+    @PostMapping("/noise-drift")
+    public Result<EvalService.NoiseDriftResult> noiseDrift() {
+        return Result.success(evalService.evaluateScoreDrift());
+    }
+
+    /** 干扰集门禁（ASR 热词纠错方案 4.5.2）：干净文本过纠错链路，corrections = 0 通过 */
+    @PostMapping("/correction-gate")
+    public Result<EvalService.CorrectionGateResult> correctionGate() {
+        return Result.success(evalService.evaluateCorrectionGate());
     }
 }

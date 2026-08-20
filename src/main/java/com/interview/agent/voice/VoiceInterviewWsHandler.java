@@ -2,6 +2,8 @@ package com.interview.agent.voice;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.interview.agent.interview.graph.InterviewGraphBuilder;
+import com.interview.agent.voice.correction.AsrCorrectionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -14,11 +16,14 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import jakarta.annotation.PreDestroy;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 语音面试 WebSocket 处理器（/ws/voice/{sessionId}）。
@@ -46,6 +51,13 @@ public class VoiceInterviewWsHandler extends TextWebSocketHandler {
     private final VoiceChannelRegistry channelRegistry;
     private final VoiceProperties properties;
     private final ObjectMapper objectMapper;
+    private final AsrCorrectionService correctionService;
+    private final InterviewGraphBuilder graphBuilder;
+
+    /** per-session final 字幕序号（ASR 热词纠错方案 4.4.3）：seq 由 WS Handler 统一分配，
+     *  不靠前端自己数（partial/断线重连/丢弃都会导致前端计数漂移）；
+     *  subtitle(final) 与 asr_correction 消息携带同 seq，前端按 seq 定位草稿句 */
+    private final Map<String, AtomicInteger> finalSeqBySession = new ConcurrentHashMap<>();
 
     /** ASR 就绪检查调度（延迟任务，量小，2 线程足够） */
     private final ScheduledExecutorService readyCheckScheduler;
@@ -53,11 +65,15 @@ public class VoiceInterviewWsHandler extends TextWebSocketHandler {
     public VoiceInterviewWsHandler(VoiceAsrService asrService,
                                    VoiceChannelRegistry channelRegistry,
                                    VoiceProperties properties,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   AsrCorrectionService correctionService,
+                                   InterviewGraphBuilder graphBuilder) {
         this.asrService = asrService;
         this.channelRegistry = channelRegistry;
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.correctionService = correctionService;
+        this.graphBuilder = graphBuilder;
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(2, r -> {
             Thread t = new Thread(r, "voice-asr-ready-check");
             t.setDaemon(true);
@@ -109,6 +125,7 @@ public class VoiceInterviewWsHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         String sessionId = extractSessionId(session);
         asrService.stopTranscription(sessionId);
+        finalSeqBySession.remove(sessionId);
         channelRegistry.unregister(sessionId, session);
         log.info("语音通道已关闭: sessionId={}, status={}", sessionId, status);
     }
@@ -126,17 +143,45 @@ public class VoiceInterviewWsHandler extends TextWebSocketHandler {
     // ---------- ASR 生命周期 ----------
 
     private void startAsr(String sessionId) {
+        // 会话热词快照：从 graph checkpoint 恢复（断线重连/页面刷新后 corpus 偏置与纠错不静默失效，方案 3.3）
+        List<String> sessionHotwords = peekHotwords(sessionId);
+        // corpus 拼接：逗号分隔术语串，不附加解释文字（corpus 越像自然词表越好，减少幻觉诱因）
+        String corpusText = null;
+        VoiceProperties.Corpus corpusCfg = properties.getCorpus();
+        if (corpusCfg.isEnabled() && !sessionHotwords.isEmpty()) {
+            int limit = Math.min(sessionHotwords.size(), corpusCfg.getMaxTerms());
+            corpusText = String.join(", ", sessionHotwords.subList(0, limit));
+        }
         asrService.startTranscription(
                 sessionId,
-                // final：一句话定稿（VAD 切段），前端累积为回答草稿
-                text -> sendSubtitle(sessionId, text, true),
-                // partial：实时片段，前端做字幕预览
-                text -> sendSubtitle(sessionId, text, false),
+                corpusText,
+                // final：一句话定稿（VAD 切段），携带 seq 下发，前端累积为回答草稿；
+                // 疑似 corpus 幻觉的 final 照常下发但携带 suspect 标记（裁决权留给候选人）
+                finalTranscript -> {
+                    int seq = finalSeqBySession
+                            .computeIfAbsent(sessionId, k -> new AtomicInteger())
+                            .incrementAndGet();
+                    sendSubtitle(sessionId, seq, finalTranscript.text(), true, finalTranscript.suspect());
+                    // 异步纠错：原字幕先行下发，correction 异步补发（P95 < 2s，失败静默回退原文）
+                    correctionService.correctAsync(sessionId, seq, finalTranscript.text(), sessionHotwords);
+                },
+                // partial：实时片段，前端做字幕预览（预览性质，不带 seq，不做对齐）
+                text -> sendSubtitle(sessionId, null, text, false, false),
                 () -> sendControl(sessionId, "asr_ready", "语音识别已就绪"),
                 error -> {
                     log.warn("ASR 错误: sessionId={}, err={}", sessionId, error.getMessage());
                     sendError(sessionId, "语音识别失败: " + error.getMessage());
                 });
+    }
+
+    /** 读取会话当前热词快照（InterviewState.sessionHotwords，随 checkpoint 持久化）；失败降级为空表 */
+    private List<String> peekHotwords(String sessionId) {
+        try {
+            return graphBuilder.peekSessionHotwords(sessionId);
+        } catch (Exception e) {
+            log.debug("[{}] 会话热词读取失败（降级为无热词）: {}", sessionId, e.getMessage());
+            return List.of();
+        }
     }
 
     private void scheduleReadyCheck(String sessionId, int retryCount) {
@@ -183,11 +228,18 @@ public class VoiceInterviewWsHandler extends TextWebSocketHandler {
 
     // ---------- 下行消息 ----------
 
-    private void sendSubtitle(String sessionId, String text, boolean isFinal) {
+    private void sendSubtitle(String sessionId, Integer seq, String text, boolean isFinal, boolean suspect) {
         Map<String, Object> msg = new HashMap<>();
         msg.put("type", "subtitle");
+        // seq 仅 final 携带：correction 异步补发时前端据此定位草稿句（方案 4.4.3）
+        if (seq != null) {
+            msg.put("seq", seq);
+        }
         msg.put("text", text);
         msg.put("final", isFinal);
+        if (suspect) {
+            msg.put("suspect", true);
+        }
         channelRegistry.sendJson(sessionId, msg);
     }
 

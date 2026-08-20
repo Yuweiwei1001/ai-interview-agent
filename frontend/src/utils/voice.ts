@@ -5,18 +5,35 @@ import { ref } from 'vue';
  *
  * 职责：
  * - 上行：AudioWorklet 采集麦克风 → 重采样 16kHz Int16 PCM → base64 over JSON → ASR
- * - 下行：ASR 字幕（partial/final）回调；TTS WAV 音频播放
+ * - 下行：ASR 字幕（partial/final，final 携带 seq 对齐序号与 suspect 幻觉标记）、
+ *        异步纠错补发（asr_correction，同 seq 定位草稿句）、TTS WAV 音频播放
  * - AI 说话门控：TTS 播放期间及结束后 600ms 冷却期内暂停音频上行，
  *   防止外放场景下面试官语音被自家麦克风回收识别（借鉴对象同款方案）
  *
  * 回答提交不走本通道：字幕由组件累积为可编辑草稿，经 REST /answer 提交。
  */
 
+/** 单处 ASR 纠错项（建议式，候选人终审） */
+export interface CorrectionItem {
+  from: string;
+  to: string;
+  confidence: 'high' | 'low';
+}
+
+/** 后端异步补发的纠错消息（携带同 seq，前端按 seq 定位草稿句） */
+export interface AsrCorrection {
+  seq: number;
+  text: string;
+  corrections: CorrectionItem[];
+}
+
 export interface VoiceSubtitleHandlers {
-  /** final：一句话定稿（VAD 切段），组件累积为回答草稿 */
-  onFinal?: (text: string) => void;
+  /** final：一句话定稿（VAD 切段），组件累积为回答草稿；seq 用于纠错补发对齐，suspect 为疑似 corpus 幻觉标记 */
+  onFinal?: (text: string, seq: number, suspect: boolean) => void;
   /** partial：实时片段，组件做识别中预览 */
   onPartial?: (text: string) => void;
+  /** 异步纠错补发（P95 < 2s）：按竞态三规则处理（未触碰替换/已编辑仅提示/已提交丢弃） */
+  onCorrection?: (correction: AsrCorrection) => void;
   /** 控制消息（connected/asr_ready/asr_reconnecting 等） */
   onControl?: (action: string, message?: string) => void;
   /** 错误消息 */
@@ -146,7 +163,10 @@ export function useVoiceInterview() {
       error.value = '语音通道连接失败';
     };
     ws.onmessage = (event: MessageEvent<string>) => {
-      let msg: { type?: string; text?: string; final?: boolean; data?: string; action?: string; message?: string };
+      let msg: {
+        type?: string; text?: string; final?: boolean; seq?: number; suspect?: boolean;
+        data?: string; action?: string; message?: string; corrections?: CorrectionItem[];
+      };
       try {
         msg = JSON.parse(event.data);
       } catch {
@@ -156,10 +176,21 @@ export function useVoiceInterview() {
         case 'subtitle':
           if (msg.text) {
             if (msg.final) {
-              handlers.onFinal?.(msg.text);
+              // final 携带 seq（后端统一分配，不靠前端计数）与 suspect（疑似 corpus 幻觉，弱化提示候选人核对）
+              handlers.onFinal?.(msg.text, typeof msg.seq === 'number' ? msg.seq : -1, msg.suspect === true);
             } else {
               handlers.onPartial?.(msg.text);
             }
+          }
+          break;
+        case 'asr_correction':
+          // 异步纠错补发：与 subtitle final 同 seq，前端按 seq 定位草稿句
+          if (typeof msg.seq === 'number' && msg.text) {
+            handlers.onCorrection?.({
+              seq: msg.seq,
+              text: msg.text,
+              corrections: Array.isArray(msg.corrections) ? msg.corrections : [],
+            });
           }
           break;
         case 'audio':

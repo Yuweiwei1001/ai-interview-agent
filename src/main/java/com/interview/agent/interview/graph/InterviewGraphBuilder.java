@@ -331,6 +331,29 @@ public class InterviewGraphBuilder {
     }
 
     /**
+     * 只读 peek 会话当前热词快照（不触发图执行）：供语音 WS Handler 在连接建立/ASR 重连时
+     * 从 checkpoint 恢复 sessionHotwords（ASR 热词纠错方案 3.3：断线恢复后 corpus 偏置不静默失效）。
+     */
+    public List<String> peekSessionHotwords(String sessionId) {
+        try {
+            CompiledGraph compiled = buildGraph();
+            RunnableConfig config = RunnableConfig.builder()
+                    .threadId(sessionId)
+                    .build();
+            Optional<StateSnapshot> snapshot = compiled.stateOf(config);
+            if (snapshot.isEmpty()) {
+                return List.of();
+            }
+            InterviewState state = toInterviewState(snapshot.get().state());
+            return state.getSessionHotwords() == null ? List.of() : state.getSessionHotwords();
+        } catch (Exception e) {
+            // 面试未开始/checkpoint 不存在/表未建：一律降级为无热词（热词是增强能力，非阻断依赖）
+            log.warn("会话热词快照读取失败（降级为无热词）: sessionId={}, err={}", sessionId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
      * 从 Checkpoint 恢复面试（同一 threadId 再次执行，从断点继续）
      */
     public InterviewState resumeInterview(String sessionId) throws Exception {

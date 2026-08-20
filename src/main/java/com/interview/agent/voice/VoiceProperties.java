@@ -16,6 +16,8 @@ public class VoiceProperties {
 
     private Asr asr = new Asr();
     private Tts tts = new Tts();
+    private Corpus corpus = new Corpus();
+    private Correction correction = new Correction();
 
     public static class Asr {
         private String url = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime";
@@ -49,6 +51,42 @@ public class VoiceProperties {
         public void setReadyCheckDelaySeconds(long v) { this.readyCheckDelaySeconds = v; }
         public int getMaxReadyRetry() { return maxReadyRetry; }
         public void setMaxReadyRetry(int v) { this.maxReadyRetry = v; }
+    }
+
+    /** ASR corpus 热词偏置（源头减错）：会话热词喂给 ASR 引擎；关闭即完全不传 corpus，行为与当前版本一致 */
+    public static class Corpus {
+        private boolean enabled = false;
+        /** corpus 词表上限（幻觉爆炸半径控制） */
+        private int maxTerms = 100;
+        /** final 文本与 corpus 拼接串的归一化编辑距离 ≤ 此值判疑似幻觉（不丢弃，suspect 标记下发） */
+        private double hallucinationEditDistanceThreshold = 0.2;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public int getMaxTerms() { return maxTerms; }
+        public void setMaxTerms(int maxTerms) { this.maxTerms = maxTerms; }
+        public double getHallucinationEditDistanceThreshold() { return hallucinationEditDistanceThreshold; }
+        public void setHallucinationEditDistanceThreshold(double v) { this.hallucinationEditDistanceThreshold = v; }
+    }
+
+    /** 后处理术语纠错（兑住漏网错误）：final 定稿后异步保守纠错；失败永不阻塞字幕与草稿 */
+    public static class Correction {
+        private boolean enabled = false;
+        /** 关 thinking 的轻量模型 */
+        private String model = "qwen-turbo";
+        /** 超时即回退原文 */
+        private long timeoutMs = 3000;
+        /** 拼音召回候选数 */
+        private int recallTopK = 20;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getModel() { return model; }
+        public void setModel(String model) { this.model = model; }
+        public long getTimeoutMs() { return timeoutMs; }
+        public void setTimeoutMs(long timeoutMs) { this.timeoutMs = timeoutMs; }
+        public int getRecallTopK() { return recallTopK; }
+        public void setRecallTopK(int recallTopK) { this.recallTopK = recallTopK; }
     }
 
     public static class Tts {
@@ -86,4 +124,8 @@ public class VoiceProperties {
     public void setAsr(Asr asr) { this.asr = asr; }
     public Tts getTts() { return tts; }
     public void setTts(Tts tts) { this.tts = tts; }
+    public Corpus getCorpus() { return corpus; }
+    public void setCorpus(Corpus corpus) { this.corpus = corpus; }
+    public Correction getCorrection() { return correction; }
+    public void setCorrection(Correction correction) { this.correction = correction; }
 }

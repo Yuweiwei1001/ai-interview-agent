@@ -55,6 +55,7 @@ public class PlanGenerator {
         sb.append("- agentAssignments: 各Agent的分配，key为agent名称(technical/project/coding)，value包含topics(考察主题，字符串数组)、difficulty(难度)、estimatedRounds(预计轮次)\n");
         sb.append("- weakPointPriority: 薄弱点优先考察列表\n");
         sb.append("- estimatedTotalRounds: 预计总轮次数\n");
+        sb.append("- hotwords: 本场面试相关的技术术语列表（从简历/JD 中提取，英文使用官方大小写如 Redis、Spring Boot，最多 30 个，宁多勿漏）\n");
         sb.append("硬性规则：\n");
         sb.append("1. coding 的 estimatedRounds 必须为 1（全场仅 1 道上机编程题），且固定安排在面试最后一题。\n");
         sb.append("2. estimatedTotalRounds 按面试时长估算，约每 5 分钟 1 题，取值 5-8 之间。\n");

@@ -26,6 +26,12 @@ public class InterviewState {
     private String status; // in_progress, completed, interrupted
     private String phase = "TEXT"; // TEXT: 文字面试（跳过 Speaker），VOICE: 语音面试（Speaker 合成）
 
+    // 会话级热词快照（简历/JD/计划三来源合并，ASR 热词纠错方案 3.3）：
+    // 作为本类的普通字段随 STATE_KEY 整体序列化持久化（勿挂到 InterviewSession DB 实体或
+    // OverAllState 顶层新 key，两者都不会参与 graph checkpoint 恢复，断线后热词会静默失效）；
+    // 一份快照三处消费：ASR corpus 偏置 / 纠错 Prompt / 出题评分 Prompt
+    private List<String> sessionHotwords;
+
     // 显式挂起标志：Coordinator 路由到 coding 时设为 true，codingWait/codingRetryWait 执行时重置为 false
     private boolean waitingForCode;
 
@@ -85,6 +91,8 @@ public class InterviewState {
     public void setStatus(String status) { this.status = status; }
     public String getPhase() { return phase; }
     public void setPhase(String phase) { this.phase = phase; }
+    public List<String> getSessionHotwords() { return sessionHotwords; }
+    public void setSessionHotwords(List<String> sessionHotwords) { this.sessionHotwords = sessionHotwords; }
     public String getCurrentLanguage() { return currentLanguage; }
     public void setCurrentLanguage(String currentLanguage) { this.currentLanguage = currentLanguage; }
     public int getCodingScore() { return codingScore; }

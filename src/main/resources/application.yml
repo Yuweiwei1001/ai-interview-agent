@@ -49,6 +49,18 @@ interview:
       api-key: ${DASHSCOPE_API_KEY:}
     tts:
       api-key: ${DASHSCOPE_API_KEY:}
+    # ASR corpus 热词偏置（ASR 热词纠错方案 4.2）：会话级热词喂给 ASR 引擎，从识别阶段减少术语错误。
+    # 默认关闭：待 P1 corpus A/B 实验验证术语正确率提升、幻觉率可接受后再并默认；关闭即完全不传 corpus
+    corpus:
+      enabled: false
+      max-terms: 100                          # corpus 词表上限（幻觉爆炸半径控制）
+      hallucination-edit-distance-threshold: 0.2   # final 与 corpus 拼接串归一化编辑距离 ≤ 此值判疑似幻觉（suspect 标记下发，不丢弃）
+    # 后处理术语纠错（ASR 热词纠错方案 4.4）：final 定稿后异步保守纠错，建议式交互由候选人终审；失败永不阻塞字幕
+    correction:
+      enabled: false
+      model: qwen-turbo                       # 关 thinking 的轻量模型
+      timeout-ms: 3000                        # 超时即回退原文
+      recall-top-k: 20                        # 拼音召回候选数
 
 jwt:
   secret: ${JWT_SECRET:your-jwt-secret-key-at-least-256-bits-change-in-production}

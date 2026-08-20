@@ -8,6 +8,8 @@ public class InterviewPlan {
     private Map<String, AgentAssignment> agentAssignments;
     private List<String> weakPointPriority;
     private int estimatedTotalRounds;
+    /** 本场面试相关技术术语（ASR 热词纠错方案 4.1.1：计划生成顺带输出，零额外 LLM 调用） */
+    private List<String> hotwords;
 
     public String getOverallStrategy() { return overallStrategy; }
     public void setOverallStrategy(String overallStrategy) { this.overallStrategy = overallStrategy; }
@@ -17,6 +19,8 @@ public class InterviewPlan {
     public void setWeakPointPriority(List<String> weakPointPriority) { this.weakPointPriority = weakPointPriority; }
     public int getEstimatedTotalRounds() { return estimatedTotalRounds; }
     public void setEstimatedTotalRounds(int estimatedTotalRounds) { this.estimatedTotalRounds = estimatedTotalRounds; }
+    public List<String> getHotwords() { return hotwords; }
+    public void setHotwords(List<String> hotwords) { this.hotwords = hotwords; }
 
     public static class AgentAssignment {
         // LLM 结构化输出恒返回字符串数组，必须用 List 接收（String 会反序列化失败走兜底计划）
