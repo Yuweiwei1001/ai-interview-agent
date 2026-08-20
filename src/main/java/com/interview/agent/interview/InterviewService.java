@@ -4,6 +4,7 @@ import com.interview.agent.common.context.BaseContext;
 import com.interview.agent.common.exception.BaseException;
 import com.interview.agent.common.exception.InterviewTerminatedException;
 import com.interview.agent.common.exception.InterviewTimeoutException;
+import com.interview.agent.hotword.HotwordService;
 import com.interview.agent.interview.agent.tool.AskQuestionTool;
 import com.interview.agent.interview.graph.InterviewGraphBuilder;
 import com.interview.agent.interview.graph.InterviewState;
@@ -16,6 +17,7 @@ import com.interview.agent.jd.JdService;
 import com.interview.agent.observability.LlmTraceContextHolder;
 import com.interview.agent.resume.ResumeService;
 import com.interview.agent.sse.SseRegistry;
+import com.interview.agent.voice.VoiceProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -47,13 +49,16 @@ public class InterviewService {
     private final ReportGenerator reportGenerator;
     private final RoundPersistenceService roundPersistenceService;
     private final Executor interviewExecutor;
+    private final HotwordService hotwordService;
+    private final VoiceProperties voiceProperties;
 
     public InterviewService(InterviewSessionMapper sessionMapper, InterviewRoundMapper roundMapper,
                             ResumeService resumeService, JdService jdService,
                             PlanGenerator planGenerator, InterviewGraphBuilder graphBuilder,
                             AskQuestionTool askQuestionTool, SseRegistry sseRegistry, ObjectMapper objectMapper,
                             ReportGenerator reportGenerator, RoundPersistenceService roundPersistenceService,
-                            @Qualifier("interviewExecutor") Executor interviewExecutor) {
+                            @Qualifier("interviewExecutor") Executor interviewExecutor,
+                            HotwordService hotwordService, VoiceProperties voiceProperties) {
         this.sessionMapper = sessionMapper;
         this.roundMapper = roundMapper;
         this.resumeService = resumeService;
@@ -66,6 +71,8 @@ public class InterviewService {
         this.reportGenerator = reportGenerator;
         this.roundPersistenceService = roundPersistenceService;
         this.interviewExecutor = interviewExecutor;
+        this.hotwordService = hotwordService;
+        this.voiceProperties = voiceProperties;
     }
 
     /**
@@ -150,6 +157,13 @@ public class InterviewService {
                     }
                     sessionMapper.updatePlan(sessionId, session.getInterviewPlan());
                 }
+
+                // 会话热词快照（ASR 热词纠错方案 4.1.3）：简历 terms ∪ JD terms ∪ 计划 hotwords，
+                // 归一化去重后写入 InterviewState，随 graph checkpoint 持久化；
+                // 上限与 corpus 词表上限同源配置（防御异常大词表，控制幻觉爆炸半径）
+                initialState.setSessionHotwords(hotwordService.buildSessionSnapshot(
+                        dto.getResumeId(), dto.getJdId(), plan,
+                        voiceProperties.getCorpus().getMaxTerms()));
 
                 // 执行面试图
                 InterviewState finalState = graphBuilder.executeInterview(initialState);

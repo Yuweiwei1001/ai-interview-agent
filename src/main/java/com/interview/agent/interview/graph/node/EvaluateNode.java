@@ -62,7 +62,11 @@ public class EvaluateNode implements Function<InterviewState, InterviewState> {
             baseScore = evaluateCodingCode(state, evaluation);
         } else {
             // 历史的长度启发式（answer.length()*2）会让长回答恒定满分，触发面试提前结束，已替换为 LLM 评分
-            AnswerEvaluator.EvaluationResult textEval = answerEvaluator.evaluate(state.getCurrentQuestion(), answer);
+            // P0 热词注入：语音面试的回答经 ASR 转写，注入会话热词表 + 噪声声明让评分容忍同音错字
+            List<String> hotwords = state.getSessionHotwords() == null ? List.of() : state.getSessionHotwords();
+            boolean asrTranscribed = "VOICE".equalsIgnoreCase(state.getPhase());
+            AnswerEvaluator.EvaluationResult textEval = answerEvaluator.evaluate(
+                    state.getCurrentQuestion(), answer, hotwords, asrTranscribed);
             baseScore = textEval.score();
             llmSummary = textEval.summary();
             llmKnowledgePoints = textEval.knowledgePoints();

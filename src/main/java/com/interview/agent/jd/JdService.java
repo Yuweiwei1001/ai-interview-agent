@@ -2,6 +2,7 @@ package com.interview.agent.jd;
 
 import com.interview.agent.common.context.BaseContext;
 import com.interview.agent.common.exception.BaseException;
+import com.interview.agent.hotword.TermExtractService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -9,9 +10,11 @@ import java.util.List;
 @Service
 public class JdService {
     private final JdMapper jdMapper;
+    private final TermExtractService termExtractService;
 
-    public JdService(JdMapper jdMapper) {
+    public JdService(JdMapper jdMapper, TermExtractService termExtractService) {
         this.jdMapper = jdMapper;
+        this.termExtractService = termExtractService;
     }
 
     public Jd create(JdCreateDTO dto) {
@@ -21,6 +24,8 @@ public class JdService {
         jd.setRawText(dto.getRawText());
         jd.setSourceUrl(dto.getSourceUrl());
         jdMapper.insert(jd);
+        // 热词抽取（ASR 热词纠错方案 4.1.1）：异步执行，不阻塞保存接口
+        termExtractService.extractAsync("jd", jd.getId(), jd.getUserId(), jd.getRawText());
         return jd;
     }
 
@@ -56,6 +61,8 @@ public class JdService {
         jd.setSourceUrl(dto.getSourceUrl());
         int affected = jdMapper.update(jd);
         if (affected == 0) throw new BaseException("JD 不存在或无权修改");
+        // 编辑后重新抽取（同源全删全插幂等）
+        termExtractService.extractAsync("jd", id, userId, jd.getRawText());
         return jdMapper.findById(id);
     }
 }

@@ -27,8 +27,14 @@ public class TechnicalAgent {
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
+        return generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints, List.of());
+    }
+
+    /** 出题（ASR 热词纠错方案 P0：注入会话热词表，题目优先围绕候选人术语体系提问） */
+    public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics,
+                                   String persona, List<String> weakPoints, List<String> sessionHotwords) {
         return LlmCallWrapper.callWithRetry("technical", () -> {
-            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints);
+            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints, sessionHotwords);
             String result = chatClient.prompt().user(prompt).call().content();
             if (result == null || result.isBlank()) {
                 throw new RuntimeException("Agent 出题返回空");
@@ -37,7 +43,8 @@ public class TechnicalAgent {
         }, () -> fallbackQuestion(topic, difficulty));
     }
 
-    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
+    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics,
+                               String persona, List<String> weakPoints, List<String> sessionHotwords) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一位资深技术面试官，负责考察候选人的技术基础能力。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
@@ -50,6 +57,11 @@ public class TechnicalAgent {
         if (weakPoints != null && !weakPoints.isEmpty()) {
             sb.append("候选人薄弱知识点（面试计划优先考察项 + 历史记忆）：").append(String.join("、", weakPoints)).append("\n");
             sb.append("若某个薄弱点与本次考察主题相关，优先围绕它出题；不相关则忽略。\n\n");
+        }
+        // P0 热词注入：题目优先围绕候选人简历/JD 中的技术术语提问，并使用官方写法
+        if (sessionHotwords != null && !sessionHotwords.isEmpty()) {
+            sb.append("候选人技术栈术语表（若与考察主题相关，优先围绕这些术语出题并使用官方写法）：")
+                    .append(String.join("、", sessionHotwords)).append("\n\n");
         }
         sb.append("请出一道技术基础题：考察概念理解、原理说明或日常开发经验，候选人口头阐述即可，不要求写代码。\n");
         sb.append("要求：\n");
