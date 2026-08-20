@@ -394,6 +394,17 @@ async function loadHistory(id: string) {
   }
 }
 
+function handleInputKeydown(e: KeyboardEvent) {
+  // 输入法组词中（如中文拼音确认）不触发发送
+  if (e.isComposing) return;
+  // Shift + Enter 换行，保持默认行为
+  if (e.shiftKey) return;
+  // Enter 发送
+  e.preventDefault();
+  if (!connected.value || completed.value) return;
+  submitAnswer();
+}
+
 async function submitAnswer() {
   if (!answer.value.trim() || !sessionId.value) return;
   const text = answer.value;
@@ -553,10 +564,10 @@ function goToReport() {
         </div>
         <div class="flex gap-3 items-end">
           <n-input v-model:value="answer" type="textarea" :disabled="!connected || completed"
-            :placeholder="isVoiceMode ? '开口说话自动转写为文字，可编辑后发送...（Ctrl + Enter 发送）' : '输入你的回答...（Ctrl + Enter 发送）'"
+            :placeholder="isVoiceMode ? '开口说话自动转写为文字，可编辑后发送...（Enter 发送，Shift + Enter 换行）' : '输入你的回答...（Enter 发送，Shift + Enter 换行）'"
             :autosize="{ minRows: 2, maxRows: 6 }"
             class="flex-1"
-            @keydown.ctrl.enter="submitAnswer" />
+            @keydown.enter="handleInputKeydown" />
           <n-button type="primary" size="large" :disabled="!answer.trim() || !connected || completed"
             @click="submitAnswer">
             发送
