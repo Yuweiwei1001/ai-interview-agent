@@ -3,17 +3,25 @@ package com.interview.agent.voice.correction;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.promeg.pinyinhelper.Pinyin;
 import jakarta.annotation.PostConstruct;
+import net.sourceforge.pinyin4j.PinyinHelper;
+import net.sourceforge.pinyin4j.format.HanyuPinyinCaseType;
+import net.sourceforge.pinyin4j.format.HanyuPinyinOutputFormat;
+import net.sourceforge.pinyin4j.format.HanyuPinyinToneType;
+import net.sourceforge.pinyin4j.format.HanyuPinyinVCharType;
+import net.sourceforge.pinyin4j.format.exception.BadHanyuPinyinOutputFormatCombination;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -43,6 +51,17 @@ public class PinyinTermIndex {
 
     private static final Pattern CHINESE_RUN = Pattern.compile("[\\u4e00-\\u9fa5]+");
     private static final Pattern ENGLISH_TOKEN = Pattern.compile("[a-zA-Z][a-zA-Z0-9+#.\\-]{1,}");
+
+    /** Pinyin4J 输出格式：无声调、小写、ü→v（与 tinypinyin 输出风格一致，如 绿→lv） */
+    private static final HanyuPinyinOutputFormat PINYIN_FORMAT = new HanyuPinyinOutputFormat();
+    static {
+        PINYIN_FORMAT.setToneType(HanyuPinyinToneType.WITHOUT_TONE);
+        PINYIN_FORMAT.setVCharType(HanyuPinyinVCharType.WITH_V);
+        PINYIN_FORMAT.setCaseType(HanyuPinyinCaseType.LOWERCASE);
+    }
+
+    /** 汉字 → 全部读音缓存（pinyin4j 解析较慢，按字缓存；词表驱动场景汉字集合有限） */
+    private final Map<Character, List<String>> charReadingCache = new ConcurrentHashMap<>();
 
     private final TermDictMapper termDictMapper;
     private final ObjectMapper objectMapper;
@@ -107,10 +126,21 @@ public class PinyinTermIndex {
             String run = cnMatcher.group();
             for (int n = NGRAM_MIN; n <= NGRAM_MAX && hits.size() < topK; n++) {
                 for (int i = 0; i + n <= run.length(); i++) {
-                    String key = Pinyin.toPinyin(run.substring(i, i + n), " ");
-                    List<String> terms = pinyinIndex.get(key);
+                    String sub = run.substring(i, i + n);
+                    // 快路径：tinypinyin 默认读音（大多数片段读音唯一；tinypinyin 输出大写，统一小写）
+                    List<String> terms = pinyinIndex.get(Pinyin.toPinyin(sub, " ").toLowerCase(Locale.ROOT));
                     if (terms != null) {
                         hits.addAll(terms);
+                        continue;
+                    }
+                    // 慢路径：多音字读音展开。tinypinyin 只返回默认读音，如"调表"→diao biao
+                    // 与词表"跳表"的规范读音 tiao biao 匹配不上；展开全部读音后再查
+                    for (String key : pinyinKeys(sub)) {
+                        terms = pinyinIndex.get(key);
+                        if (terms != null) {
+                            hits.addAll(terms);
+                            break;
+                        }
                     }
                 }
             }
@@ -163,6 +193,53 @@ public class PinyinTermIndex {
         String key = normalizeKey(keyTerm);
         if (key.isEmpty()) return;
         index.computeIfAbsent(key, k -> new ArrayList<>()).add(canonical);
+    }
+
+    /**
+     * 汉字片段 → 全部候选拼音 key（多音字笛卡尔积）。
+     * 如 "调表" → [diao biao, tiao biao]、"银行" → [yin hang, yin xing]。
+     * 组合数超过 {@link #PINYIN_EXPAND_LIMIT} 时截断为每字主读音（防御异常数据组合爆炸）。
+     */
+    private List<String> pinyinKeys(String hanzi) {
+        List<String> results = new ArrayList<>();
+        results.add("");
+        for (int i = 0; i < hanzi.length(); i++) {
+            List<String> readings = charReadings(hanzi.charAt(i));
+            if (readings.isEmpty()) return List.of();
+            if (results.size() * readings.size() > PINYIN_EXPAND_LIMIT) {
+                String main = readings.get(0);
+                for (int j = 0; j < results.size(); j++) {
+                    results.set(j, results.get(j).isEmpty() ? main : results.get(j) + " " + main);
+                }
+                continue;
+            }
+            List<String> next = new ArrayList<>(results.size() * readings.size());
+            for (String prefix : results) {
+                for (String p : readings) {
+                    next.add(prefix.isEmpty() ? p : prefix + " " + p);
+                }
+            }
+            results = next;
+        }
+        return results;
+    }
+
+    /** 单字全部读音（pinyin4j，带缓存）；非汉字/生僻字回退 tinypinyin 默认读音 */
+    private List<String> charReadings(char ch) {
+        return charReadingCache.computeIfAbsent(ch, c -> {
+            String[] arr;
+            try {
+                arr = PinyinHelper.toHanyuPinyinStringArray(c, PINYIN_FORMAT);
+            } catch (BadHanyuPinyinOutputFormatCombination e) {
+                arr = null;
+            }
+            if (arr == null || arr.length == 0) {
+                String fallback = Pinyin.toPinyin(c).toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+                return fallback.isEmpty() ? List.of() : List.of(fallback);
+            }
+            // 多音字去声调后可能有重复（如 diào/diāo 均 → diao），去重
+            return List.of(new LinkedHashSet<>(Arrays.asList(arr)).toArray(new String[0]));
+        });
     }
 
     /**

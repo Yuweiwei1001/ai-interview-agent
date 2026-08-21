@@ -153,6 +153,13 @@
             <artifactId>tinypinyin</artifactId>
             <version>2.0.3</version>
         </dependency>
+        <!-- Pinyin4J：取多音字全部读音。tinypinyin 只返回默认读音（"调表"→diao biao），
+             会召不回词表规范读音 tiao biao（"跳表"），多音字展开查询依赖此库 -->
+        <dependency>
+            <groupId>com.belerweb</groupId>
+            <artifactId>pinyin4j</artifactId>
+            <version>2.5.1</version>
+        </dependency>
         <!-- Tika -->
         <dependency>
             <groupId>org.apache.tika</groupId>

@@ -121,7 +121,8 @@ public class AsrCorrectionService {
         sb.append("1. 仅当某词与上述术语表/候选中的术语发音相同或极相近，且替换后句义通顺时，才替换；\n");
         sb.append("2. 严格保持原句语义与语序，禁止改写、扩写、书面化；\n");
         sb.append("3. 保留口语特征（语气词、重复、卡顿）原样不动；\n");
-        sb.append("4. 没有把握的位置一律保留原文。\n");
+        sb.append("4. 没有把握的位置一律保留原文；\n");
+        sb.append("5. 禁止仅大小写不同的替换（如 confirm→Confirm、LLM→llm），大小写变化不算纠错；\n");
         sb.append("输出 JSON：{\"corrections\":[{\"from\":\"拉夫特\",\"to\":\"Raft\",\"confidence\":\"high|low\"}],\"text\":\"修正后全文\"}。没有需要纠正的就输出空数组。");
         return sb.toString();
     }
@@ -145,6 +146,11 @@ public class AsrCorrectionService {
                     String from = item.path("from").asText("");
                     String to = item.path("to").asText("");
                     if (from.isBlank() || to.isBlank() || from.equals(to)) continue;
+                    // 纯大小写差异不算纠错（"大小写没必要纠，只要看得懂就行"）：
+                    // from/to 小写化后完全相同即为大小写变体（如 confirm→Confirm），跳过
+                    if (from.toLowerCase(Locale.ROOT).equals(to.toLowerCase(Locale.ROOT))) {
+                        continue;
+                    }
                     // 原文已是已知术语（term/别名精确命中）：用户本就说对了，禁止再纠
                     // （防 LLM 把正确的 "LLM" 改成其别名"大语言模型"类误伤）
                     if (termIndex.containsExact(from.trim())) {
@@ -159,8 +165,8 @@ public class AsrCorrectionService {
                     corrections.add(new Correction(from.trim(), to.trim(), confidence));
                 }
             }
-            // 修正后全文与原句完全相同视为无纠错
-            if (correctedText.equals(originalText) && corrections.isEmpty()) {
+            // 无有效纠错项（含纯大小写差异被过滤后为空）→ 回退原文，保证文本与明细一致
+            if (corrections.isEmpty()) {
                 return new CorrectionResult(originalText, List.of());
             }
             return new CorrectionResult(correctedText, corrections);
@@ -173,8 +179,20 @@ public class AsrCorrectionService {
     private boolean isKnownTerm(String to, List<String> sessionHotwords, List<String> candidates) {
         String key = HotwordService.normalizeKey(to);
         if (key.isEmpty()) return false;
-        return sessionHotwords.stream().anyMatch(h -> HotwordService.normalizeKey(h).equals(key))
-                || candidates.stream().anyMatch(c -> HotwordService.normalizeKey(c).equals(key));
+        // 目标必须与已知术语（会话热词 ∪ 召回候选）文本关联：支持包含匹配——
+        // LLM 常只输出术语核心词（如"握手"⊂候选"三次握手"），全等会比较会误判
+        // unknown 降为 low，导致前端不自动替换（可用性损失）。
+        return matchesKnown(sessionHotwords, key) || matchesKnown(candidates, key);
+    }
+
+    private boolean matchesKnown(List<String> known, String key) {
+        for (String k : known) {
+            String nk = HotwordService.normalizeKey(k);
+            if (nk.contains(key) || key.contains(nk)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 单处纠错项 */
