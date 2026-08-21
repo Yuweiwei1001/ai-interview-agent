@@ -44,6 +44,11 @@ public class InterviewState {
     // 当前评估是否为追问轮
     private boolean isFollowUpRound;
 
+    // 对话摘要（LLM 生成的面试前情摘要，覆盖已完成的轮次，最近 N 轮以全量方式注入 prompt）
+    private String conversationSummary;
+    // 已参与摘要的轮次数，用于判断摘要是否需更新
+    private int summarizedRoundCount;
+
     // Coding 环节字段：代码评估结果与重试状态（供行为策略分流使用）
     private String currentLanguage;   // 当前编码题语言（java/python 等）
     private int codingScore = -1;     // 最近一次代码评估综合评分（-1 表示未评估）
@@ -109,6 +114,10 @@ public class InterviewState {
     public void setCodingHint(String codingHint) { this.codingHint = codingHint; }
     public String getRoundTraceId() { return roundTraceId; }
     public void setRoundTraceId(String roundTraceId) { this.roundTraceId = roundTraceId; }
+    public String getConversationSummary() { return conversationSummary; }
+    public void setConversationSummary(String conversationSummary) { this.conversationSummary = conversationSummary; }
+    public int getSummarizedRoundCount() { return summarizedRoundCount; }
+    public void setSummarizedRoundCount(int summarizedRoundCount) { this.summarizedRoundCount = summarizedRoundCount; }
 
     public static class RoundRecord {
         private int roundNumber;

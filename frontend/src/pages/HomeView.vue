@@ -55,7 +55,7 @@ function handleLogout() {
       </div>
 
       <!-- 美化：快捷入口卡片，hover 上浮 + 阴影加深 -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <router-link to="/resumes"
           class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold mb-3">简</div>
@@ -73,18 +73,6 @@ function handleLogout() {
           <div class="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center text-lg font-bold mb-3">库</div>
           <h3 class="font-semibold text-slate-800 group-hover:text-cyan-600 transition-colors duration-200">知识笔记</h3>
           <p class="text-sm text-slate-500 mt-1">沉淀专属知识文档，AI 问答自动引用</p>
-        </router-link>
-        <router-link to="/term-dict"
-          class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
-          <div class="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center text-lg font-bold mb-3">词</div>
-          <h3 class="font-semibold text-slate-800 group-hover:text-orange-600 transition-colors duration-200">纠错词库</h3>
-          <p class="text-sm text-slate-500 mt-1">维护语音纠错术语，识别更准</p>
-        </router-link>
-        <router-link to="/asr-eval"
-          class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
-          <div class="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center text-lg font-bold mb-3">音</div>
-          <h3 class="font-semibold text-slate-800 group-hover:text-cyan-600 transition-colors duration-200">ASR 转写评测</h3>
-          <p class="text-sm text-slate-500 mt-1">上传录音，端到端验证转写与术语纠错</p>
         </router-link>
         <router-link to="/chat"
           class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
@@ -115,6 +103,18 @@ function handleLogout() {
           <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg font-bold mb-3">评</div>
           <h3 class="font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors duration-200">Agent 评测</h3>
           <p class="text-sm text-slate-500 mt-1">golden 数据集自动驱动面试，评估 Agent 质量</p>
+        </router-link>
+        <router-link to="/term-dict"
+          class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
+          <div class="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center text-lg font-bold mb-3">词</div>
+          <h3 class="font-semibold text-slate-800 group-hover:text-orange-600 transition-colors duration-200">纠错词库</h3>
+          <p class="text-sm text-slate-500 mt-1">维护语音纠错术语，识别更准</p>
+        </router-link>
+        <router-link to="/asr-eval"
+          class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
+          <div class="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center text-lg font-bold mb-3">音</div>
+          <h3 class="font-semibold text-slate-800 group-hover:text-cyan-600 transition-colors duration-200">ASR 转写评测</h3>
+          <p class="text-sm text-slate-500 mt-1">上传录音，端到端验证转写与术语纠错</p>
         </router-link>
       </div>
     </main>

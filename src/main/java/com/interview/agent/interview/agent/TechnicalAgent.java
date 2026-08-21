@@ -1,9 +1,10 @@
 package com.interview.agent.interview.agent;
 
 import com.interview.agent.common.ai.LlmCallWrapper;
+import com.interview.agent.common.ai.ReActAgent;
+import com.interview.agent.common.context.BaseContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -12,56 +13,101 @@ import java.util.Map;
 @Component
 public class TechnicalAgent {
     private static final Logger log = LoggerFactory.getLogger(TechnicalAgent.class);
-    private final ChatClient chatClient;
+    private final ReActAgent reactAgent;
+    private final InterviewTools interviewTools;
 
-    public TechnicalAgent(ChatClient.Builder builder) {
-        this.chatClient = builder.build();
+    public TechnicalAgent(ReActAgent reactAgent, InterviewTools interviewTools) {
+        this.reactAgent = reactAgent;
+        this.interviewTools = interviewTools;
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics) {
-        return generateQuestion(topic, difficulty, resumeText, askedTopics, "neutral", List.of());
+        return generateQuestion(topic, difficulty, resumeText, askedTopics, "neutral", List.of(), "", "", "");
     }
 
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona) {
-        return generateQuestion(topic, difficulty, resumeText, askedTopics, persona, List.of());
-    }
-
-    public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics, String persona, List<String> weakPoints) {
-        return generateQuestion(topic, difficulty, resumeText, askedTopics, persona, weakPoints, List.of());
+        return generateQuestion(topic, difficulty, resumeText, askedTopics, persona, List.of(), "", "", "");
     }
 
     /** 出题（ASR 热词纠错方案 P0：注入会话热词表，题目优先围绕候选人术语体系提问） */
     public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics,
-                                   String persona, List<String> weakPoints, List<String> sessionHotwords) {
+                                   String persona, List<String> sessionHotwords) {
+        return generateQuestion(topic, difficulty, resumeText, askedTopics, persona, sessionHotwords, "", "", "");
+    }
+
+    /** 出题（ReAct 循环：思考→行动→观察→再思考→最终出题） */
+    public String generateQuestion(String topic, String difficulty, String resumeText, List<String> askedTopics,
+                                   String persona, List<String> sessionHotwords,
+                                   String conversationHistory, String recentConversation, String conversationSummary) {
+        Long userId = BaseContext.getCurrentId();
         return LlmCallWrapper.callWithRetry("technical", () -> {
-            String prompt = buildPrompt(topic, difficulty, resumeText, askedTopics, persona, weakPoints, sessionHotwords);
-            String result = chatClient.prompt().user(prompt).call().content();
-            if (result == null || result.isBlank()) {
-                throw new RuntimeException("Agent 出题返回空");
+            // 传播用户上下文到 LLM 调用线程（@Tool 方法依赖 BaseContext 获取用户 ID）
+            if (userId != null) {
+                BaseContext.setCurrentId(userId);
             }
-            return result;
+            // 传播完整对话历史到 LLM 调用线程（getConversationHistory 工具读取）
+            if (conversationHistory != null && !conversationHistory.isBlank()) {
+                ConversationContext.set(conversationHistory);
+            }
+            try {
+                String systemPrompt = buildSystemPrompt(topic, difficulty, persona, sessionHotwords, conversationSummary, recentConversation);
+                String userPrompt = buildUserPrompt(topic, difficulty, askedTopics, sessionHotwords, persona);
+                String result = reactAgent.execute(systemPrompt, userPrompt, interviewTools);
+                if (result == null || result.isBlank()) {
+                    throw new RuntimeException("Agent 出题返回空");
+                }
+                return result;
+            } finally {
+                ConversationContext.clear();
+                if (userId != null) {
+                    BaseContext.removeCurrentId();
+                }
+            }
         }, () -> fallbackQuestion(topic, difficulty));
     }
 
-    private String buildPrompt(String topic, String difficulty, String resumeText, List<String> askedTopics,
-                               String persona, List<String> weakPoints, List<String> sessionHotwords) {
+    /** 系统提示：角色设定 + 上下文 + ReAct 行为指引 */
+    private String buildSystemPrompt(String topic, String difficulty, String persona,
+                                     List<String> sessionHotwords, String conversationSummary, String recentConversation) {
         StringBuilder sb = new StringBuilder();
         sb.append("你是一位资深技术面试官，负责考察候选人的技术基础能力。\n\n");
         sb.append("考察主题：").append(topic).append("\n");
         sb.append("难度级别：").append(difficulty).append("\n\n");
-        // 成本优化：八股题主题由面试计划 + Coordinator 决策保证，全量简历对出题无增益，不再注入（每轮省 ~2k 输入 token）；
-        // resumeText 参数保留仅为调用方签名兼容。项目经验题（ProjectAgent）仍注入全量简历。
-        if (askedTopics != null && !askedTopics.isEmpty()) {
-            sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
+        // 前情摘要（更早轮次的 LLM 总结）
+        if (conversationSummary != null && !conversationSummary.isBlank()) {
+            sb.append("【前情摘要】").append(conversationSummary).append("\n\n");
         }
-        if (weakPoints != null && !weakPoints.isEmpty()) {
-            sb.append("候选人薄弱知识点（面试计划优先考察项 + 历史记忆）：").append(String.join("、", weakPoints)).append("\n");
-            sb.append("若某个薄弱点与本次考察主题相关，优先围绕它出题；不相关则忽略。\n\n");
+        // 最近 N 轮全量对话
+        if (recentConversation != null && !recentConversation.isBlank()) {
+            sb.append("【最近对话】\n").append(recentConversation).append("\n");
         }
         // P0 热词注入：题目优先围绕候选人简历/JD 中的技术术语提问，并使用官方写法
         if (sessionHotwords != null && !sessionHotwords.isEmpty()) {
             sb.append("候选人技术栈术语表（若与考察主题相关，优先围绕这些术语出题并使用官方写法）：")
                     .append(String.join("、", sessionHotwords)).append("\n\n");
+        }
+        // ReAct 行为指引：LLM 在出题前可先调用工具了解候选人背景，然后再出题
+        sb.append("【ReAct 工作模式】\n");
+        sb.append("请遵循以下步骤来完成出题任务：\n");
+        sb.append("1. 思考：分析面试主题和难度，思考需要什么信息来出好题\n");
+        sb.append("2. 行动：如果需要了解候选人的背景，使用提供的工具获取信息\n");
+        sb.append("3. 观察：查看工具返回的结果，了解候选人的知识掌握情况\n");
+        sb.append("4. 再思考：基于获取的信息，决定出题方向和深度\n");
+        sb.append("5. 最终：生成一道有针对性的面试题\n\n");
+        sb.append("可用工具：\n");
+        sb.append("- getCandidateWeakPoints：获取候选人历史薄弱知识点，用于针对性出题\n");
+        sb.append("- getConversationHistory：获取当前会话的完整对话历史\n");
+        return sb.toString();
+    }
+
+    /** 用户消息：具体的出题请求 */
+    private String buildUserPrompt(String topic, String difficulty, List<String> askedTopics,
+                                   List<String> sessionHotwords, String persona) {
+        StringBuilder sb = new StringBuilder();
+        // 成本优化：八股题主题由面试计划 + Coordinator 决策保证，全量简历对出题无增益，不再注入（每轮省 ~2k 输入 token）；
+        // resumeText 参数保留仅为调用方签名兼容。项目经验题（ProjectAgent）仍注入全量简历。
+        if (askedTopics != null && !askedTopics.isEmpty()) {
+            sb.append("已考察主题（请避免重复）：").append(String.join("、", askedTopics)).append("\n\n");
         }
         sb.append("请出一道技术基础题：考察概念理解、原理说明或日常开发经验，候选人口头阐述即可，不要求写代码。\n");
         sb.append("要求：\n");

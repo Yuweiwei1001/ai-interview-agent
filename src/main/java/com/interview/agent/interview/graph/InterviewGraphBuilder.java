@@ -37,6 +37,7 @@ import com.interview.agent.observability.LlmTraceContextHolder;
 import com.interview.agent.observability.LlmTraceObservationHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -84,7 +85,7 @@ public class InterviewGraphBuilder {
             STATE_KEY, "sessionId", "userId", "resumeText", "jdText", "direction", "persona",
             "durationMinutes", "plan", "currentRound", "maxRounds", "rounds", "currentQuestion",
             "currentAnswer", "currentAgent", "phase", "status", "waitingForCode",
-            "pendingFollowUp", "isFollowUpRound");
+            "pendingFollowUp", "isFollowUpRound", "conversationSummary", "summarizedRoundCount");
 
     private final PlanGenerator planGenerator;
     private final AskQuestionTool askQuestionTool;
@@ -102,6 +103,7 @@ public class InterviewGraphBuilder {
     private final AnswerEvaluator answerEvaluator;
     private final RoundPersistenceService roundPersistenceService;
     private final LlmTraceObservationHandler traceHandler;
+    private final ChatClient.Builder chatClientBuilder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public InterviewGraphBuilder(PlanGenerator planGenerator, AskQuestionTool askQuestionTool, DataSource dataSource,
@@ -112,7 +114,8 @@ public class InterviewGraphBuilder {
                                  KnowledgePointService knowledgePointService, CodeEvaluationEngine codeEvaluationEngine,
                                  TestCaseService testCaseService, AnswerEvaluator answerEvaluator,
                                  RoundPersistenceService roundPersistenceService,
-                                 LlmTraceObservationHandler traceHandler) {
+                                 LlmTraceObservationHandler traceHandler,
+                                 ChatClient.Builder chatClientBuilder) {
         this.planGenerator = planGenerator;
         this.askQuestionTool = askQuestionTool;
         this.dataSource = dataSource;
@@ -129,6 +132,7 @@ public class InterviewGraphBuilder {
         this.answerEvaluator = answerEvaluator;
         this.roundPersistenceService = roundPersistenceService;
         this.traceHandler = traceHandler;
+        this.chatClientBuilder = chatClientBuilder;
     }
 
     /** 所有 state 键均使用覆盖策略（与 ThinkVerse 模式一致） */
@@ -148,7 +152,7 @@ public class InterviewGraphBuilder {
     public CompiledGraph buildGraph() throws Exception {
         // 创建节点实例
         PlanNode planNode = new PlanNode(planGenerator);
-        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, knowledgePointService);
+        CoordinatorNode coordinatorNode = new CoordinatorNode(technicalAgent, projectAgent, codingAgent, questionDeduper, chatClientBuilder);
         AskNode askNode = new AskNode(askQuestionTool, speakerAgent);
         EvaluateNode evaluateNode = new EvaluateNode(policyFactory, followUpGenerator, knowledgePointService,
                 codeEvaluationEngine, testCaseService, answerEvaluator, roundPersistenceService,
