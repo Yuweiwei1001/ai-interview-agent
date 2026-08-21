@@ -1,11 +1,14 @@
 package com.interview.agent.interview.agent;
 
+import com.alibaba.cloud.ai.dashscope.api.DashScopeResponseFormat;
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.interview.agent.common.ai.LlmCallWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -20,9 +23,15 @@ public class AnswerEvaluator {
     private static final Logger log = LoggerFactory.getLogger(AnswerEvaluator.class);
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final String model;
+    private final Boolean enableThinking;
 
-    public AnswerEvaluator(ChatClient.Builder builder) {
+    public AnswerEvaluator(ChatClient.Builder builder,
+                           @Value("${spring.ai.dashscope.chat.options.model}") String model,
+                           @Value("${spring.ai.dashscope.chat.options.enable-thinking:true}") Boolean enableThinking) {
         this.chatClient = builder.build();
+        this.model = model;
+        this.enableThinking = enableThinking;
     }
 
     /**
@@ -48,7 +57,15 @@ public class AnswerEvaluator {
     public EvaluationResult evaluate(String question, String answer, List<String> sessionHotwords, boolean asrTranscribed) {
         return LlmCallWrapper.callWithRetry("evaluator",
                 () -> {
-                    String content = chatClient.prompt().user(buildPrompt(question, answer, sessionHotwords, asrTranscribed)).call().content();
+                    String content = chatClient.prompt().user(buildPrompt(question, answer, sessionHotwords, asrTranscribed))
+                            // DashScope JSON 模式：解码层强制输出合法 JSON；注意 per-call options 必须带上 model + enableThinking，
+                            // 否则会覆盖并丢掉模型默认值（qwen3.7-max 关思考会 400）
+                            .options(DashScopeChatOptions.builder()
+                                    .model(model)
+                                    .enableThinking(enableThinking)
+                                    .responseFormat(new DashScopeResponseFormat(DashScopeResponseFormat.Type.JSON_OBJECT))
+                                    .build())
+                            .call().content();
                     return parse(content);
                 },
                 () -> new EvaluationResult(60, 60, List.of(), "评估服务暂不可用，按参考分计入"));

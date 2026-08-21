@@ -5,6 +5,7 @@ import com.alibaba.dashscope.aigc.multimodalconversation.MultiModalConversationM
 import com.alibaba.dashscope.aigc.multimodalconversation.MultiModalConversationParam;
 import com.alibaba.dashscope.aigc.multimodalconversation.MultiModalConversationResult;
 import com.alibaba.dashscope.aigc.multimodalconversation.MultiModalMessageItemText;
+import com.alibaba.dashscope.common.ResponseFormat;
 import com.alibaba.dashscope.common.Role;
 import com.alibaba.dashscope.utils.Constants;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,6 +46,8 @@ public class LightweightLlmClient {
                         .message(msg)
                         .enableThinking(false)
                         .temperature(temperature)
+                        // DashScope JSON 模式：解码层强制输出合法 JSON（避免代码块包裹/多余文字）
+                        .responseFormat(ResponseFormat.builder().type(ResponseFormat.JSON_OBJECT).build())
                         .build());
         return extractText(result);
     }
