@@ -1,4 +1,4 @@
-﻿# === Java / Maven ===
+# === Java / Maven ===
 target/
 *.class
 *.jar
@@ -43,6 +43,9 @@ eval-reports/
 
 # === 知识库图片上传目录 ===
 kb-images/
+
+# === docs 文档目录（个人文档/设计/录音，不参与版本控制） ===
+docs/
 
 # === Brainstorming visual companion 临时产物 ===
 .superpowers/
