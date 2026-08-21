@@ -86,3 +86,18 @@ sandbox:
   java-image: eclipse-temurin:21-jdk-alpine
   python-image: python:3.12-slim
   max-pool-size: 3
+
+# 知识库检索增强管线（RAG）：默认全部关闭，保持"纯向量检索+父子块展开"。
+# 每项开启才会生效并增加检索阶段计算量/LLM 调用，建议逐个打开做 A/B 对比。
+app:
+  rag:
+    # 查询改写（多查询召回）：LLM 把问题改写后再补一次向量检索，提升召回
+    query-rewrite-enabled: false
+    # HyDE（假设文档检索）：LLM 先生成理想答案再向量召回，弥合问题与文档语义鸿沟
+    hyde-enabled: false
+    # 混合检索（BM25 关键词 + 向量 + RRF 融合）：覆盖术语/专有名词召回盲区
+    hybrid-enabled: false
+    # LLM 重排（精排）：对候选片段打相关分并取前 topK，压制次相关干扰
+    llm-rerank-enabled: false
+    # 增强检索用的 LLM 模型（复用 LightweightLlmClient 多模态端点）
+    llm-model: qwen3.7-flash

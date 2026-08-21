@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { NButton, NInput, NEmpty, NSpin, useMessage, useDialog } from 'naive-ui';
 import { marked } from 'marked';
 import {
@@ -7,6 +8,7 @@ import {
   type ChatSession, type ChatMessage, type ChatSource
 } from '../api/chat';
 
+const router = useRouter();
 const message = useMessage();
 const dialog = useDialog();
 
@@ -157,9 +159,16 @@ function toggleSources(idx: number) {
 
 function renderMd(text: string): string {
   try {
-    return marked.parse(text, { async: false }) as string;
+    return marked.parse(text, { async: false, breaks: true, gfm: true }) as string;
   } catch {
     return text;
+  }
+}
+
+/* 引用来源 → 跳转该文档详情（同一 SPA 内跳转编辑页） */
+function openSource(src: ChatSource) {
+  if (src.kbId && src.docId) {
+    router.push({ name: 'KnowledgeDocEdit', params: { kbId: String(src.kbId), docId: String(src.docId) } });
   }
 }
 
@@ -254,7 +263,10 @@ function onKeydown(e: KeyboardEvent) {
                         <div v-if="expandedSources[idx]" class="mt-2 space-y-2">
                           <div v-for="(src, si) in m.sourcesParsed" :key="si"
                             class="bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
-                            <p class="text-xs font-semibold text-slate-600">{{ src.title }}</p>
+                            <button v-if="src.kbId && src.docId"
+                              class="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors text-left"
+                              @click="openSource(src)">{{ src.title }}</button>
+                            <p v-else class="text-xs font-semibold text-slate-600">{{ src.title }}</p>
                             <p class="text-xs text-slate-400 mt-1 leading-relaxed">{{ src.excerpt }}</p>
                           </div>
                         </div>

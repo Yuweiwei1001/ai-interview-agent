@@ -4,7 +4,6 @@ import com.interview.agent.common.exception.BaseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
@@ -12,11 +11,14 @@ import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * 知识库服务：知识库/文档 CRUD + 异步切分向量化（ES 存储）。
@@ -224,17 +226,23 @@ public class KnowledgeService {
     /**
      * ETL 核心：文档切分 + 向量化 + 存入 ES。
      * chunk metadata 含 kbId / docId / title / chunkIndex，docId 用于更新时精确删除旧向量。
+     *
+     * <p>父子块（Parent-Child）策略：
+     * <ul>
+     *   <li>child：精细检索单位——按 markdown 标题切成小节（小节过长再固定窗口细分，重叠 20%），存进 ES 向量化，保证语义聚焦；</li>
+     *   <li>parent：送 LLM 的完整上下文——整篇文档，不冗余存 ES（避免多一份向量、也避免检索到整篇干扰结果），由检索器从 DB 按 docId 加载。</li>
+     * </ul>
      */
     private List<Document> splitAndEmbed(Long kbId, Long docId, String title, String contentMd) {
         Map<String, Object> metadata = new HashMap<>();
         metadata.put("kbId", kbId);
         metadata.put("docId", docId);
         metadata.put("title", title);
-        Document rawDoc = new Document(contentMd, metadata);
 
-        // 切分（800 tokens/chunk, 100 overlap）
-        TokenTextSplitter splitter = new TokenTextSplitter(800, 100, 5, 10000, true);
-        List<Document> chunks = splitter.apply(List.of(rawDoc));
+        // 仅存 child 小节；parent（整篇）走 DB 加载，见 KnowledgeRetriever
+        List<Document> chunks = splitChildren(contentMd, 500, 100).stream()
+                .map(text -> new Document(text, new HashMap<>(metadata)))
+                .collect(Collectors.toList());
 
         for (int i = 0; i < chunks.size(); i++) {
             Document chunk = chunks.get(i);
@@ -247,6 +255,72 @@ public class KnowledgeService {
         // 存入 VectorStore（自动调用 EmbeddingModel 向量化）
         vectorStore.add(chunks);
         return chunks;
+    }
+
+    /** markdown 标题行（一级到六级 #） */
+    private static final Pattern HEADING_PATTERN = Pattern.compile("^#{1,6}\\s+");
+
+    /**
+     * 结构感知切分：优先按 markdown 标题切成小节作为 child；小节超过 chunkLen 再固定窗口细分；
+     * 无标题（或标题只出现在开头、切分无效）时回退为整篇固定窗口切分。
+     */
+    private List<String> splitChildren(String text, int chunkLen, int overlap) {
+        List<String> sections = splitBySections(text);
+        if (sections.size() >= 2) {
+            List<String> out = new ArrayList<>();
+            for (String s : sections) {
+                if (s.length() <= chunkLen) {
+                    out.add(s);
+                } else {
+                    out.addAll(splitFixedWindow(s, chunkLen, overlap));
+                }
+            }
+            return out;
+        }
+        return splitFixedWindow(text, chunkLen, overlap);
+    }
+
+    /** 按 markdown 标题把文本切成若干小节，标题与其后内容绑定；无标题时返回空列表 */
+    private List<String> splitBySections(String text) {
+        List<String> sections = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            return sections;
+        }
+        StringBuilder current = new StringBuilder();
+        for (String line : text.split("\n", -1)) {
+            if (HEADING_PATTERN.matcher(line).find()) {
+                if (current.length() > 0) {
+                    sections.add(current.toString().trim());
+                }
+                current = new StringBuilder();
+            }
+            current.append(line).append("\n");
+        }
+        if (current.length() > 0) {
+            sections.add(current.toString().trim());
+        }
+        sections.removeIf(String::isBlank);
+        return sections;
+    }
+
+    /**
+     * 固定长度字符切分：窗口 chunkLen、相邻窗口重叠 overlap 字符（即步长 chunkLen-overlap）。
+     * 通过 end=min(start+chunkLen, len) 把文本末尾并入最后一个窗口，不产生遗漏；无需再单独追加碎尾。
+     */
+    private List<String> splitFixedWindow(String text, int chunkLen, int overlap) {
+        List<String> parts = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            return parts;
+        }
+        int stride = Math.max(1, chunkLen - overlap);
+        int start = 0;
+        int len = text.length();
+        while (start < len) {
+            int end = Math.min(start + chunkLen, len);
+            parts.add(text.substring(start, end));
+            start += stride;
+        }
+        return parts;
     }
 
     /** 删除知识库的所有向量（通过 filter 搜索再批量删除） */

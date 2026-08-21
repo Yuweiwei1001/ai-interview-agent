@@ -12,6 +12,7 @@ export interface ChatSession {
 
 export interface ChatSource {
   docId: number;
+  kbId?: number;
   title: string;
   excerpt: string;
 }

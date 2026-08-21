@@ -158,6 +158,7 @@ public class ChatService {
             // 4. 组装 Prompt（知识片段 + 最近对话历史），LLM 流式生成
             String sourcesJson = toJson(chunks.stream()
                     .map(c -> Map.of("docId", c.docId() == null ? 0 : c.docId(),
+                            "kbId", c.kbId() == null ? 0 : c.kbId(),
                             "title", c.title(),
                             "excerpt", c.excerpt() != null && c.excerpt().length() > 200
                                     ? c.excerpt().substring(0, 200) : c.excerpt()))
