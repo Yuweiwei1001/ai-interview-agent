@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * 实时语音识别（DashScope qwen3-asr-flash-realtime，Omni Realtime WebSocket）。
+ * 实时语音识别（DashScope qwen-audio-3.0-asr-flash-streaming，Omni Realtime WebSocket）。
  *
  * <p>每个语音面试会话独占一条 ASR 连接，服务端 VAD（server_vad）自动按静音切段：
  * <ul>

@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * 向量存储配置 — 使用 Elasticsearch 作为向量数据库（知识库 RAG）。
- * DashScope text-embedding-v3 输出 1024 维向量。
+ * DashScope qwen3.7-text-embedding 输出 1024 维向量（默认）。
  */
 @Configuration
 public class VectorStoreConfig {

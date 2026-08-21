@@ -1,15 +1,14 @@
 package com.interview.agent.voice.correction;
 
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.interview.agent.common.ai.LightweightLlmClient;
 import com.interview.agent.common.ai.LlmCallWrapper;
 import com.interview.agent.hotword.HotwordService;
 import com.interview.agent.voice.VoiceChannelRegistry;
 import com.interview.agent.voice.VoiceProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -35,7 +34,7 @@ public class AsrCorrectionService {
     private static final Logger log = LoggerFactory.getLogger(AsrCorrectionService.class);
     private static final Pattern ENGLISH_TOKEN = Pattern.compile("[a-zA-Z][a-zA-Z0-9+#.\\-]{1,}");
 
-    private final ChatClient chatClient;
+    private final LightweightLlmClient llmClient;
     private final PinyinTermIndex termIndex;
     private final VoiceProperties properties;
     private final VoiceChannelRegistry channelRegistry;
@@ -49,9 +48,9 @@ public class AsrCorrectionService {
     });
     private static final AtomicInteger CORRECTION_THREAD_SEQ = new AtomicInteger();
 
-    public AsrCorrectionService(ChatClient.Builder chatClientBuilder, PinyinTermIndex termIndex,
+    public AsrCorrectionService(LightweightLlmClient llmClient, PinyinTermIndex termIndex,
                                 VoiceProperties properties, VoiceChannelRegistry channelRegistry) {
-        this.chatClient = chatClientBuilder.build();
+        this.llmClient = llmClient;
         this.termIndex = termIndex;
         this.properties = properties;
         this.channelRegistry = channelRegistry;
@@ -106,15 +105,7 @@ public class AsrCorrectionService {
             return new CorrectionResult(text, List.of());
         }
         return LlmCallWrapper.callWithRetry("asr-correction", () -> {
-            String content = chatClient.prompt()
-                    .options(DashScopeChatOptions.builder()
-                            .withModel(cfg.getModel())
-                            .withEnableThinking(false)
-                            .withTemperature(0.1)
-                            .build())
-                    .user(buildPrompt(text, hotwords, candidates))
-                    .call()
-                    .content();
+            String content = llmClient.callText(cfg.getModel(), buildPrompt(text, hotwords, candidates), 0.1f);
             return parse(content, text, hotwords, candidates);
         }, () -> new CorrectionResult(text, List.of()),
                 Math.max(1, (cfg.getTimeoutMs() + 999) / 1000), 0);
@@ -154,6 +145,11 @@ public class AsrCorrectionService {
                     String from = item.path("from").asText("");
                     String to = item.path("to").asText("");
                     if (from.isBlank() || to.isBlank() || from.equals(to)) continue;
+                    // 原文已是已知术语（term/别名精确命中）：用户本就说对了，禁止再纠
+                    // （防 LLM 把正确的 "LLM" 改成其别名"大语言模型"类误伤）
+                    if (termIndex.containsExact(from.trim())) {
+                        continue;
+                    }
                     // 置信校准：替换目标必须精确命中（会话热词 ∪ 召回候选）才允许 high，
                     // LLM 自信但目标不在已知术语集内的强制降为 low（前端仅提示候选）
                     String confidence = item.path("confidence").asText("low").toLowerCase(Locale.ROOT);

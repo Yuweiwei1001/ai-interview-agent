@@ -1,10 +1,11 @@
 package com.interview.agent.hotword;
 
-import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.interview.agent.common.ai.LightweightLlmClient;
 import com.interview.agent.common.ai.LlmCallWrapper;
+import com.interview.agent.voice.VoiceProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -13,7 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 技术术语抽取（ASR 热词纠错方案 4.1.1）：qwen-turbo 从简历/JD 文本抽取术语，异步执行。
+ * 技术术语抽取（ASR 热词纠错方案 4.1.1）：轻量模型（qwen3.7-flash，多模态端点）从简历/JD 文本抽取术语，异步执行。
  *
  * <p>抽取 Prompt 要点：宁多勿漏——corpus 软偏置下多词无害，漏词才是损失。
  * 上传与面试之间天然有时间差，异步抽取不阻塞上传接口。
@@ -21,12 +22,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class TermExtractService {
     private static final Logger log = LoggerFactory.getLogger(TermExtractService.class);
-    /** 单份文本长度上限：超长简历截断（turbo 术语抽取不需要全文） */
+    /** 单份文本长度上限：超长简历截断（轻量模型术语抽取不需要全文） */
     private static final int MAX_TEXT_LENGTH = 8000;
     private static final int EXTRACTION_TIMEOUT_SECONDS = 20;
 
-    private final ChatClient chatClient;
+    private final LightweightLlmClient llmClient;
     private final HotwordService hotwordService;
+    private final VoiceProperties voiceProperties;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     /** 抽取专用线程池：与上传请求线程解耦，失败仅记日志（热词缺失有计划/来源兜底） */
     private final ExecutorService extractExecutor = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "hotword-extract-" + HOTWORD_THREAD_SEQ.incrementAndGet());
@@ -35,9 +38,11 @@ public class TermExtractService {
     });
     private static final AtomicInteger HOTWORD_THREAD_SEQ = new AtomicInteger();
 
-    public TermExtractService(ChatClient.Builder chatClientBuilder, HotwordService hotwordService) {
-        this.chatClient = chatClientBuilder.build();
+    public TermExtractService(LightweightLlmClient llmClient, HotwordService hotwordService,
+                              VoiceProperties voiceProperties) {
+        this.llmClient = llmClient;
         this.hotwordService = hotwordService;
+        this.voiceProperties = voiceProperties;
     }
 
     /** 异步抽取并落库（上传/保存成功后触发） */
@@ -57,17 +62,31 @@ public class TermExtractService {
     /** 同步抽取（评测门禁/管理用途复用） */
     public List<HotwordService.ExtractedTerm> extract(String sourceType, Long sourceId, String text) {
         return LlmCallWrapper.callWithRetry("hotword-extract", () -> {
-            ExtractionResult result = chatClient.prompt()
-                    .options(DashScopeChatOptions.builder()
-                            .withModel("qwen-turbo")
-                            .withEnableThinking(false)
-                            .withTemperature(0.1)
-                            .build())
-                    .user(buildPrompt(text))
-                    .call()
-                    .entity(ExtractionResult.class);
+            String content = llmClient.callText(lightweightModel(), buildPrompt(text), 0.1f);
+            ExtractionResult result = parse(content);
             return result == null || result.terms() == null ? List.<HotwordService.ExtractedTerm>of() : result.terms();
         }, List::of, EXTRACTION_TIMEOUT_SECONDS, 1);
+    }
+
+    /** 轻量模型名：与纠错共用 interview.voice.correction.model（qwen3.7-flash，多模态端点） */
+    private String lightweightModel() {
+        return voiceProperties.getCorrection().getModel();
+    }
+
+    /** 解析抽取结果（LLM 可能带 markdown 围栏/前后杂文本，截取花括号范围） */
+    private ExtractionResult parse(String content) {
+        try {
+            String json = content == null ? "" : content;
+            int start = json.indexOf('{');
+            int end = json.lastIndexOf('}');
+            if (start < 0 || end <= start) {
+                throw new IllegalArgumentException("热词抽取输出缺少 JSON");
+            }
+            return objectMapper.readValue(json.substring(start, end + 1), ExtractionResult.class);
+        } catch (Exception e) {
+            log.warn("热词抽取结果解析失败（返回空，不影响主流程）: {}", e.getMessage());
+            return null;
+        }
     }
 
     private String buildPrompt(String text) {

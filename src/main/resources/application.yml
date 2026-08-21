@@ -24,7 +24,7 @@ spring:
           enable-thinking: true
       embedding:
         options:
-          model: text-embedding-v3
+          model: qwen3.7-text-embedding
   elasticsearch:
     uris: ${ES_URIS:http://localhost:9200}
     connection-timeout: 5s
@@ -40,7 +40,7 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
 
-# 语音面试（ASR/TTS 实时通道，DashScope qwen3-asr/tts-flash-realtime）
+# 语音面试（ASR/TTS 实时通道，DashScope qwen-audio-3.0-asr-flash-streaming / qwen-audio-3.0-tts-plus）
 # api-key 复用 DASHSCOPE_API_KEY 环境变量；未配置时语音链路自动降级（ASR/TTS 静默失败，文本流程不受影响）
 interview:
   voice:
@@ -57,8 +57,8 @@ interview:
       hallucination-edit-distance-threshold: 0.2   # final 与 corpus 拼接串归一化编辑距离 ≤ 此值判疑似幻觉（suspect 标记下发，不丢弃）
     # 后处理术语纠错（ASR 热词纠错方案 4.4）：final 定稿后异步保守纠错，建议式交互由候选人终审；失败永不阻塞字幕
     correction:
-      enabled: false
-      model: qwen-turbo                       # 关 thinking 的轻量模型
+      enabled: true
+      model: qwen3.7-flash               # 关 thinking 的轻量模型（多模态模型，经 LightweightLlmClient 走 multimodal-generation 端点）
       timeout-ms: 3000                        # 超时即回退原文
       recall-top-k: 20                        # 拼音召回候选数
 

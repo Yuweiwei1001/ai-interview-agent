@@ -148,20 +148,20 @@ public class CoordinatorNode implements Function<InterviewState, InterviewState>
      * 无计划/无 topics 时回退内置主题池轮换。
      */
     private String pickTopic(String nextAgent, InterviewPlan.AgentAssignment assignment, long techDone, long projDone) {
+        // 编程题：恒用内置算法池按已轮次轮换（每场仅 1 道，轮换保证题不重复）。
+        // 不依赖计划 topics：fallbackPlan 的 coding topics 恒单元素，若按计划取将场场同主题、
+        // LLM 在该主题下总输出同一道经典题（如"和为K的子数组"）。
+        if ("coding".equals(nextAgent)) {
+            return CODING_TOPICS.get((int) ((techDone + projDone) % CODING_TOPICS.size()));
+        }
         if (assignment != null && assignment.getTopics() != null && !assignment.getTopics().isEmpty()) {
             List<String> topics = assignment.getTopics();
-            long consumed = switch (nextAgent) {
-                case "technical" -> techDone;
-                case "project" -> projDone;
-                default -> 0;
-            };
+            long consumed = "technical".equals(nextAgent) ? techDone : projDone;
             return topics.get((int) (consumed % topics.size()));
         }
-        return switch (nextAgent) {
-            case "technical" -> TECHNICAL_TOPICS.get((int) techDone % TECHNICAL_TOPICS.size());
-            case "project" -> PROJECT_TOPICS.get((int) projDone % PROJECT_TOPICS.size());
-            default -> CODING_TOPICS.get((int) ((techDone + projDone) % CODING_TOPICS.size()));
-        };
+        return "technical".equals(nextAgent)
+                ? TECHNICAL_TOPICS.get((int) techDone % TECHNICAL_TOPICS.size())
+                : PROJECT_TOPICS.get((int) projDone % PROJECT_TOPICS.size());
     }
 
     /** 计划难度归一化（兼容 LLM 输出 medium/中等 等写法）；无法识别时回退人格难度 */

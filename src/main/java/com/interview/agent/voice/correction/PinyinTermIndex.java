@@ -38,6 +38,8 @@ public class PinyinTermIndex {
     private static final int ENGLISH_FUZZY_MIN_LEN = 4;
     /** 多音字候选组合展开上限（防御异常数据导致组合爆炸） */
     private static final int PINYIN_EXPAND_LIMIT = 64;
+    /** 归一化 key 数超过该阈值时英文模糊匹配改用 BK 树（否则全表扫描）。当前千级词表全表毫秒级，BK 构建成本不划算 */
+    private static final int BK_TREE_THRESHOLD = 5000;
 
     private static final Pattern CHINESE_RUN = Pattern.compile("[\\u4e00-\\u9fa5]+");
     private static final Pattern ENGLISH_TOKEN = Pattern.compile("[a-zA-Z][a-zA-Z0-9+#.\\-]{1,}");
@@ -49,6 +51,8 @@ public class PinyinTermIndex {
     private volatile Map<String, List<String>> pinyinIndex = Map.of();
     /** 归一化 term/alias（如 "springboot"）→ 规范术语列表（英文模糊匹配用） */
     private volatile Map<String, List<String>> normalizedIndex = Map.of();
+    /** 大规模词表时的 BK 树索引（词表 ≤ 阈值时为 null，走全表扫描） */
+    private volatile BkTree bkTree;
 
     public PinyinTermIndex(TermDictMapper termDictMapper, ObjectMapper objectMapper) {
         this.termDictMapper = termDictMapper;
@@ -83,8 +87,11 @@ public class PinyinTermIndex {
         }
         this.pinyinIndex = pinyin;
         this.normalizedIndex = normalized;
-        log.info("术语库索引已加载: 术语 {} 条, 拼音 key {} 个, 归一化 key {} 个",
-                all.size(), pinyin.size(), normalized.size());
+        // 英文模糊匹配策略：词表超阈值构建 BK 树剪枝，否则全表扫描（千级毫秒级）
+        this.bkTree = normalized.size() > BK_TREE_THRESHOLD ? BkTree.of(normalized.keySet()) : null;
+        log.info("术语库索引已加载: 术语 {} 条, 拼音 key {} 个, 归一化 key {} 个{}",
+                all.size(), pinyin.size(), normalized.size(),
+                bkTree != null ? ", 英文模糊匹配已切换 BK 树(" + bkTree.size() + " 词)" : "");
     }
 
     /**
@@ -119,11 +126,20 @@ public class PinyinTermIndex {
                 continue;
             }
             if (token.length() >= ENGLISH_FUZZY_MIN_LEN) {
-                for (Map.Entry<String, List<String>> entry : normalizedIndex.entrySet()) {
-                    if (entry.getKey().length() >= ENGLISH_FUZZY_MIN_LEN
-                            && editDistance(token, entry.getKey()) <= ENGLISH_FUZZY_MAX_DIST) {
-                        hits.addAll(entry.getValue());
+                if (bkTree != null) {
+                    // 大规模词表：BK 树三角不等式剪枝，避免全表 O(N) 编辑距离扫描
+                    for (String candidate : bkTree.search(token, ENGLISH_FUZZY_MAX_DIST)) {
+                        hits.addAll(normalizedIndex.getOrDefault(candidate, List.of()));
                         if (hits.size() >= topK) break;
+                    }
+                } else {
+                    // 千级词表：全表扫描毫秒级，BK 树构建成本反而不划算
+                    for (Map.Entry<String, List<String>> entry : normalizedIndex.entrySet()) {
+                        if (entry.getKey().length() >= ENGLISH_FUZZY_MIN_LEN
+                                && EditDistance.distance(token, entry.getKey()) <= ENGLISH_FUZZY_MAX_DIST) {
+                            hits.addAll(entry.getValue());
+                            if (hits.size() >= topK) break;
+                        }
                     }
                 }
             }
@@ -150,22 +166,25 @@ public class PinyinTermIndex {
     }
 
     /**
-     * 展开 pinyin 字段为全部候选读音 key：音节用空格分隔，多音字候选用 | 分隔。
-     * 如 "zhong | chong liang" → ["zhong liang", "chong liang"]。
+     * 展开 pinyin 字段为全部候选读音 key：完整读音变体用 ; 分隔，音节用空格分隔，多音字候选用 | 分隔。
+     * 如 "zhong | chong liang" → ["zhong liang", "chong liang"]；
+     * 如 "ar ei ji;re ge"（RAG 两种读法）→ ["ar ei ji", "re ge"]。
      */
     private List<String> expandPinyinKeys(String pinyin) {
         if (pinyin == null || pinyin.isBlank()) return List.of();
-        List<List<String>> syllables = new ArrayList<>();
-        for (String s : pinyin.trim().split("\\s+")) {
-            String[] candidates = s.split("\\|");
-            List<String> opts = new ArrayList<>();
-            for (String c : candidates) {
-                if (!c.isBlank()) opts.add(c.trim());
-            }
-            if (!opts.isEmpty()) syllables.add(opts);
-        }
         List<String> keys = new ArrayList<>();
-        expandRecursive(syllables, 0, new StringBuilder(), keys);
+        for (String variant : pinyin.split(";")) {
+            List<List<String>> syllables = new ArrayList<>();
+            for (String s : variant.trim().split("\\s+")) {
+                String[] candidates = s.split("\\|");
+                List<String> opts = new ArrayList<>();
+                for (String c : candidates) {
+                    if (!c.isBlank()) opts.add(c.trim());
+                }
+                if (!opts.isEmpty()) syllables.add(opts);
+            }
+            expandRecursive(syllables, 0, new StringBuilder(), keys);
+        }
         return keys;
     }
 
@@ -199,24 +218,5 @@ public class PinyinTermIndex {
     static String normalizeKey(String term) {
         if (term == null) return "";
         return term.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9\\u4e00-\\u9fa5]", "");
-    }
-
-    /** 经典 Levenshtein 编辑距离（双行 DP） */
-    static int editDistance(String a, String b) {
-        if (a.equals(b)) return 0;
-        int[] prev = new int[b.length() + 1];
-        int[] cur = new int[b.length() + 1];
-        for (int j = 0; j <= b.length(); j++) prev[j] = j;
-        for (int i = 1; i <= a.length(); i++) {
-            cur[0] = i;
-            for (int j = 1; j <= b.length(); j++) {
-                int cost = a.charAt(i - 1) == b.charAt(j - 1) ? 0 : 1;
-                cur[j] = Math.min(Math.min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
-            }
-            int[] tmp = prev;
-            prev = cur;
-            cur = tmp;
-        }
-        return prev[b.length()];
     }
 }

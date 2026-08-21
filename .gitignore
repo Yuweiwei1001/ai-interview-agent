@@ -43,3 +43,6 @@ eval-reports/
 
 # === 知识库图片上传目录 ===
 kb-images/
+
+# === Brainstorming visual companion 临时产物 ===
+.superpowers/

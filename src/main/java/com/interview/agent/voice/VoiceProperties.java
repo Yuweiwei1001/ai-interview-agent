@@ -21,7 +21,7 @@ public class VoiceProperties {
 
     public static class Asr {
         private String url = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime";
-        private String model = "qwen3-asr-flash-realtime";
+        private String model = "qwen-audio-3.0-asr-flash-streaming";
         private String apiKey;
         private String language = "zh";
         private String format = "pcm";
@@ -72,8 +72,8 @@ public class VoiceProperties {
     /** 后处理术语纠错（兑住漏网错误）：final 定稿后异步保守纠错；失败永不阻塞字幕与草稿 */
     public static class Correction {
         private boolean enabled = false;
-        /** 关 thinking 的轻量模型 */
-        private String model = "qwen-turbo";
+        /** 关 thinking 的轻量模型（qwen3.7-flash 为多模态模型，须经 LightweightLlmClient 走 multimodal-generation 端点） */
+        private String model = "qwen3.7-flash";
         /** 超时即回退原文 */
         private long timeoutMs = 3000;
         /** 拼音召回候选数 */
@@ -90,7 +90,7 @@ public class VoiceProperties {
     }
 
     public static class Tts {
-        private String model = "qwen3-tts-flash-realtime";
+        private String model = "qwen-audio-3.0-tts-plus";
         private String apiKey;
         private String voice = "Cherry";
         private int sampleRate = 24000;

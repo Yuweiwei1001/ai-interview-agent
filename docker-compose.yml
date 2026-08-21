@@ -6,6 +6,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: root123
       MYSQL_DATABASE: ai_interview
+      TZ: Asia/Shanghai
     ports:
       - "13307:3306"
     volumes:
