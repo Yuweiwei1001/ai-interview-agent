@@ -14,6 +14,8 @@ import ObservabilityView from './pages/ObservabilityView.vue';
 import ReportView from './pages/ReportView.vue';
 import EvalView from './pages/EvalView.vue';
 import CodingRoomView from './views/CodingRoomView.vue';
+import TermDictView from './pages/TermDictView.vue';
+import AsrEvalView from './pages/AsrEvalView.vue';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -34,6 +36,8 @@ const router = createRouter({
         { path: '/report/:id', name: 'Report', component: ReportView, meta: { requiresAuth: true } },
         { path: '/eval', name: 'Eval', component: EvalView, meta: { requiresAuth: true } },
         { path: '/coding', name: 'CodingRoom', component: CodingRoomView, meta: { requiresAuth: true } },
+        { path: '/term-dict', name: 'TermDict', component: TermDictView, meta: { requiresAuth: true } },
+        { path: '/asr-eval', name: 'AsrEval', component: AsrEvalView, meta: { requiresAuth: true } },
   ]
 });
 
