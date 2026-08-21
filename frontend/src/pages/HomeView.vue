@@ -51,7 +51,7 @@ function handleLogout() {
       </div>
 
       <!-- 美化：快捷入口卡片，hover 上浮 + 阴影加深 -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <router-link to="/resumes"
           class="group bg-white rounded-2xl shadow-card p-6 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200">
           <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold mb-3">简</div>
